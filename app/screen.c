@@ -993,7 +993,8 @@ static __attribute__((noinline)) void draw_map(void)
         memset(cache->tile_cache, 0xff, sizeof cache->tile_cache);
         erase(0, 0, 240, 240);
         text(8, 8, "CONTROL MAP", 2, ACCENT, BACK);
-        dim_text(8, 229, "K1 ROW K2 TYPE K3 TRK/CC K4 CH SAVE CLR");
+        dim_text(8, 213, "K1 ROW  K2 TYPE  K3 TRK/CC  K4 CH");
+        dim_text(8, 229, "SAVE DEFAULT  HOME EXIT");
     }
     for (unsigned i = 0; i < SMK37_MAP_CONTROLS; ++i) {
         const struct smk37_map_entry *e = smk37_map_get(i);
