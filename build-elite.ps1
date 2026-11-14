@@ -1,8 +1,9 @@
 # Compile le firmware SMK37 Open + CONTROL MAP pour le SMK-37 Elite (test materiel).
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
-$candidates = @($env:FM1_PI32_TOOLCHAIN, 'C:\JL\pi32', 'D:\JL\pi32') | Where-Object { $_ }
-$toolchain = $candidates | Where-Object { Test-Path (Join-Path $_ 'bin\clang.exe') } | Select-Object -First 1
+$candidates = @($env:FM1_PI32_TOOLCHAIN, 'C:\JL\pi32') | Where-Object { $_ }
+# Plain string paths: Join-Path fails on drive letters that do not exist.
+$toolchain = $candidates | Where-Object { Test-Path -LiteralPath ($_.TrimEnd('\') + '\bin\clang.exe') -ErrorAction SilentlyContinue } | Select-Object -First 1
 if (-not $toolchain) {
     Write-Host ''
     Write-Host 'Chaine JieLi 2.5.3 introuvable (C:\JL\pi32\bin\clang.exe).' -ForegroundColor Yellow
