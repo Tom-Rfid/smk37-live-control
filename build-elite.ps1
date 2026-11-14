@@ -1,7 +1,14 @@
 # Compile le firmware SMK37 Open + CONTROL MAP pour le SMK-37 Elite (test materiel).
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
-$candidates = @($env:FM1_PI32_TOOLCHAIN, 'C:\JL\pi32') | Where-Object { $_ }
+# A toolchain extracted next to this script (toolchain-pi32.zip) needs no installer.
+$localZip = Join-Path $root 'toolchain-pi32.zip'
+$localTool = Join-Path $root 'toolchain\pi32'
+if (-not (Test-Path -LiteralPath ($localTool + '\bin\clang.exe')) -and (Test-Path -LiteralPath $localZip)) {
+    Write-Host 'Extraction de la chaine JieLi (toolchain-pi32.zip)...'
+    Expand-Archive -LiteralPath $localZip -DestinationPath (Join-Path $root 'toolchain') -Force
+}
+$candidates = @($env:FM1_PI32_TOOLCHAIN, $localTool, 'C:\JL\pi32') | Where-Object { $_ }
 # Plain string paths: Join-Path fails on drive letters that do not exist.
 $toolchain = $candidates | Where-Object { Test-Path -LiteralPath ($_.TrimEnd('\') + '\bin\clang.exe') -ErrorAction SilentlyContinue } | Select-Object -First 1
 if (-not $toolchain) {
