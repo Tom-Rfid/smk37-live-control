@@ -15,14 +15,25 @@
 
 enum { SMK37_MAP_KNOBS = 8, SMK37_MAP_FADERS = 4,
        SMK37_MAP_CONTROLS = SMK37_MAP_KNOBS + SMK37_MAP_FADERS };
+/* Targets up to SMK37_MAP_FM_FEEDBACK act on a track; the next five are
+ * shared by all tracks. LFO targets use the DX7 LFO on DX7 tracks (waves
+ * TRI, SAW DOWN, SAW UP, SQUARE, SINE, S&H) and the track LFO on the other
+ * engines (TRI, SQUARE, UP, DOWN). */
 enum smk37_map_target {
     SMK37_MAP_DEFAULT, SMK37_MAP_LEVEL, SMK37_MAP_REVERB, SMK37_MAP_DELAY,
-    SMK37_MAP_CUTOFF, SMK37_MAP_CC, SMK37_MAP_TARGETS
+    SMK37_MAP_CUTOFF, SMK37_MAP_LFO_RATE, SMK37_MAP_LFO_DEPTH, SMK37_MAP_LFO_WAVE,
+    SMK37_MAP_FM_FEEDBACK, SMK37_MAP_REV_TIME, SMK37_MAP_DLY_TIME, SMK37_MAP_DLY_FEEDBACK,
+    SMK37_MAP_FX_RETURN, SMK37_MAP_TEMPO, SMK37_MAP_CC, SMK37_MAP_TARGETS
 };
 /* track 0 follows the selected track; 1..8 are T1..T8. channel is 0..15.
  * All-zero bytes are the default (DEFAULT, selected track, CC 0, channel 1). */
 struct smk37_map_entry { uint8_t target, track, cc, channel; };
-enum { SMK37_MAP_BYTES = SMK37_MAP_CONTROLS * 4 };
+/* LIVE SETUP page: velocity curve (NORMAL, SOFT, HARD, FIXED 100), fader
+ * mode (PICKUP, JUMP), knob speed (X1, X2, X4). */
+enum { SMK37_SETUP_VELOCITY, SMK37_SETUP_FADERS, SMK37_SETUP_SPEED, SMK37_SETUP_ROWS };
+extern uint8_t smk37_setup[4];
+void smk37_setup_edit(unsigned row, int delta);
+enum { SMK37_MAP_BYTES = SMK37_MAP_CONTROLS * 4 + 4 };
 
 const struct smk37_map_entry *smk37_map_get(unsigned control);
 /* parameter 0 target, 1 track (or CC number for MIDI CC), 2 MIDI channel. */

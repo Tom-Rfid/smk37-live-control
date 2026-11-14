@@ -39,8 +39,8 @@ static int settings_result;
 static unsigned session_dirty, session_pending;
 extern void smk37_panel_preferences_read(uint8_t data[4]) __attribute__((weak));
 extern void smk37_panel_preferences_apply(const uint8_t data[4]) __attribute__((weak));
-extern void smk37_map_preferences_read(uint8_t data[48]) __attribute__((weak));
-extern int smk37_map_preferences_apply(const uint8_t data[48]) __attribute__((weak));
+extern void smk37_map_preferences_read(uint8_t data[52]) __attribute__((weak));
+extern int smk37_map_preferences_apply(const uint8_t data[52]) __attribute__((weak));
 static int recover_staging(void);
 /* Older SDKs retain their checkpoint/apply path; current engines defer the
  * checkpoint until every required voice allocation has succeeded. */
@@ -162,11 +162,11 @@ static int read_project(unsigned sector)
 enum { TUNING_MAGIC = 0x54314d46U, TUNING_VERSION = 2, SAMPLE_BANK_MAGIC = 0x53314d46U };
 struct tuning_entry { uint32_t key; struct groove_tuning t[GROOVE_TRACKS]; uint32_t crc; };
 /* Optional tail leaves every existing tuning entry at its original offset. */
-enum { SESSION_MAGIC = 0x31534d46U, PANEL_MAGIC = 0x31504b53U, MAP_MAGIC = 0x314d4b53U };
+enum { SESSION_MAGIC = 0x31534d46U, PANEL_MAGIC = 0x31504b53U, MAP_MAGIC = 0x324d4b53U };
 struct session_settings { uint32_t magic; uint8_t role[8], channel[8]; uint32_t crc; };
 struct panel_settings { uint32_t magic; uint8_t data[4]; uint32_t crc; };
-/* SMK37 knob/fader assignments (MAP page): 12 controls x 4 bytes. */
-enum { MAP_SETTINGS_BYTES = 48 };
+/* SMK37 knob/fader assignments (12 controls x 4 bytes) and LIVE SETUP (4). */
+enum { MAP_SETTINGS_BYTES = 52 };
 struct map_settings { uint32_t magic; uint8_t data[MAP_SETTINGS_BYTES]; uint32_t crc; };
 struct tuning_sector { uint32_t magic, version; struct tuning_entry entry[GROOVE_PROJECT_SLOTS]; struct session_settings session; struct panel_settings panel; struct map_settings map; };
 struct tuning_block { uint32_t magic; struct groove_tuning t[GROOVE_TRACKS]; uint32_t crc; };

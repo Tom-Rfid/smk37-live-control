@@ -149,7 +149,7 @@ static const char *const source_names[] = {"DX7 FM", "BASS 303", "DRUM 808", "PS
 static const char *const actions[] = {"STEP DETAILS", "RHYTHM / RECORD", "COPY STEP", "COPY PAGE", "COPY TRACK",
     "PASTE STEP", "PASTE PAGE", "PASTE TRACK", "CLEAR STEP", "CLEAR PAGE", "CLEAR TRACK",
     "REPEAT TO 32", "REPEAT TO 48", "REPEAT TO 64", "UNDO / REDO", "COPY TIMBRE", "PASTE TIMBRE",
-    "DX7 PATCH NAME", "BLUETOOTH / CLOCK", "STOP ALL / REWIND"};
+    "CONTROL MAP", "LIVE SETUP", "STOP ALL / REWIND"};
 enum { ACTION_COUNT = sizeof actions / sizeof actions[0] };
 static unsigned source_preview, action, action_confirm, tone_clip_ready;
 static struct groove_preset tone_clip;
@@ -199,7 +199,7 @@ static uint32_t project_keys; /* Held Play pitches across a project remapping. *
 static uint32_t encoder_time[7];
 static int8_t encoder_direction[7];
 static uint8_t encoder_speed[7];
-static unsigned map_row;
+static unsigned map_row, map_page, setup_row;
 static unsigned glo_down, glo_used, ble_device, ble_was_linked, ble_view, ble_action;
 static int ble_result, source_result;
 static unsigned ble_forget, ble_stage, ble_seconds;
@@ -984,21 +984,38 @@ static void radio_line(unsigned slot, unsigned y, const char *value, uint16_t co
     erase(8, y, 224, 7);
     color_text(8, y, value, color);
 }
-/* MAP page: twelve rows K1..K8, F1..F4, e.g. ">K5 REVERB T3", " F2 MIDI CC 074/02".
- * Kept small: the app image has almost no free Flash. */
+/* The SDK build contract requires the BLE MIDI host entry points to stay
+ * linked although the Bluetooth page was removed. Never set at run time. */
+static volatile uint8_t keep_ble_host;
+/* MAP pages. 1/2 CONTROL MAP: twelve rows K1..K8, F1..F4, e.g.
+ * ">K5 REVERB T3", " F2 MIDI CC 074/02". 2/2 LIVE SETUP: velocity curve,
+ * fader mode, knob speed. BT or OCT-/OCT+ change page. Kept small: the app
+ * image has little free Flash. */
 static __attribute__((noinline)) void draw_map(void)
 {
-    if (cache->title_cache != 1) {
-        cache->title_cache = 1;
+    if (cache->title_cache != 1U + map_page) {
+        cache->title_cache = 1U + map_page;
         memset(cache->tile_cache, 0xff, sizeof cache->tile_cache);
         erase(0, 0, 240, 240);
-        text(8, 8, "CONTROL MAP", 2, ACCENT, BACK);
-        dim_text(8, 213, "K1 ROW  K2 TYPE  K3 TRK/CC  K4 CH");
-        dim_text(8, 229, "SAVE DEFAULT  HOME EXIT");
+        text(8, 8, map_page ? "LIVE SETUP 2/2" : "CONTROL MAP 1/2", 2, ACCENT, BACK);
+        dim_text(8, 213, map_page ? "K1 ROW  K2 VALUE" : "K1 ROW  K2 TYPE  K3 TRK/CC  K4 CH");
+        dim_text(8, 229, "SAVE DEFAULT  BT/OCT PAGE  HOME EXIT");
+    }
+    char line[32], *p;
+    if (map_page) {
+        static const char *const rows[SMK37_SETUP_ROWS] = {"VELOCITY   ", "FADERS     ", "KNOB SPEED "};
+        static const char *const values[] = {"NORMAL", "SOFT", "HARD", "FIXED 100", "PICKUP", "JUMP", "X1", "X2", "X4"};
+        static const uint8_t first[SMK37_SETUP_ROWS] = {0, 4, 6};
+        for (unsigned i = 0; i < SMK37_SETUP_ROWS; ++i) {
+            line[0] = i == setup_row ? '>' : ' ';
+            strcpy(line + 1, rows[i]); strcat(line, values[first[i] + smk37_setup[i]]);
+            radio_line(i, 48 + i * 22, line, i == setup_row ? ACCENT : TEXT);
+        }
+        return;
     }
     for (unsigned i = 0; i < SMK37_MAP_CONTROLS; ++i) {
         const struct smk37_map_entry *e = smk37_map_get(i);
-        char line[24], *p = line;
+        p = line;
         *p++ = i == map_row ? '>' : ' '; *p++ = i < SMK37_MAP_KNOBS ? 'K' : 'F';
         *p++ = (char)('1' + i % SMK37_MAP_KNOBS); *p++ = ' ';
         strcpy(p, smk37_map_target_names[e->target]); p += strlen(p);
@@ -1006,19 +1023,28 @@ static __attribute__((noinline)) void draw_map(void)
             unsigned ch = e->channel + 1U;
             p[0] = ' '; p[1] = (char)('0' + e->cc / 100); p[2] = (char)('0' + e->cc / 10 % 10);
             p[3] = (char)('0' + e->cc % 10); p[4] = '/'; p[5] = (char)('0' + ch / 10); p[6] = (char)('0' + ch % 10); p[7] = 0;
-        } else if (!e->target) *p = 0;
+        } else if (!e->target || e->target > SMK37_MAP_FM_FEEDBACK) *p = 0;
         else if (!e->track) strcpy(p, " SEL");
         else { p[0] = ' '; p[1] = 'T'; p[2] = (char)('0' + e->track); p[3] = 0; }
         radio_line(i, 40 + i * 14, line, i == map_row ? ACCENT : e->target ? TEXT : DIM);
     }
 }
-/* The SDK build contract requires the BLE MIDI host entry points to stay
- * linked although the Bluetooth page was removed. Never set at run time. */
-static volatile uint8_t keep_ble_host;
 static __attribute__((noinline)) void map_control(const struct fm1_controls *controls, uint32_t pressed)
 {
-    if (keep_ble_host) { (void)fm1_ble_scan(); (void)fm1_ble_connect(0); }
-    map_row = (unsigned)clamp((int)map_row + controls->encoders[2] + controls->encoders[6], 0, SMK37_MAP_CONTROLS - 1);
+    if (keep_ble_host) {
+        struct fm1_ble_device device; struct fm1_bluetooth_status radio;
+        (void)fm1_ble_scan(); (void)fm1_ble_connect(0); (void)fm1_ble_disconnect();
+        (void)fm1_ble_get_device(0, &device); fm1_bluetooth_get_status(&radio);
+    }
+    if (pressed & (BUTTON(OCT_DOWN) | BUTTON(OCT_UP))) { map_page ^= 1U; return; }
+    int rows = controls->encoders[2] + controls->encoders[6];
+    if (map_page) {
+        setup_row = (unsigned)clamp((int)setup_row + rows, 0, SMK37_SETUP_ROWS - 1);
+        smk37_setup_edit(setup_row, controls->encoders[3]);
+        if (pressed & BUTTON(SAVE)) smk37_setup_edit(setup_row, -9);
+        return;
+    }
+    map_row = (unsigned)clamp((int)map_row + rows, 0, SMK37_MAP_CONTROLS - 1);
     for (unsigned i = 0; i < 3; ++i) smk37_map_edit(map_row, i, controls->encoders[3 + i]);
     if (pressed & BUTTON(SAVE)) smk37_map_clear(map_row);
 }
@@ -1411,10 +1437,6 @@ static __attribute__((noinline, cold, minsize)) void draw_page_body(const struct
         if (visible == FM_QUICK || visible == ARP_EDIT)
             hint_draw(state_hint ? state_hint : visible == FM_QUICK
                 ? "EDIT BACK  HOLD EDIT MORE" : "ARP ON/OFF   HOME BACK");
-        return;
-    }
-    if (visible == NAME) {
-        name_draw();
         return;
     }
     if (visible == EFFECTS) {
@@ -1832,7 +1854,6 @@ void groove_screen_init(void)
     for (unsigned key = 0; key < 41; ++key) fm1_led_set(key, 0);
     fm1_screen_init();
     boot_started = fm1_millis();
-    boot_active = 1;
     struct fm1_ble_status ble = {0};
     fm1_ble_get_status(&ble);
     draw(&ble);
@@ -2043,7 +2064,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
     }
     if ((controls->buttons & (BUTTON(HOME) | BUTTON(GLO))) == (BUTTON(HOME) | BUTTON(GLO)) &&
         (pressed & (BUTTON(HOME) | BUTTON(GLO)))) {
-        page = MAP_PAGE; glo_down = glo_used = 0;
+        page = MAP_PAGE; map_page = 0; glo_down = glo_used = 0;
         goto controls_done;
     }
     /* Keep the original HOME+PRESETS shortcut, including after HOME opens
@@ -2077,13 +2098,6 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         glo_down = 0;
         blocked_keys |= controls->keys;
         if (tapped) page = page == MIX ? music_page : MIX;
-    }
-    if ((controls->buttons & (BUTTON(EDIT) | BUTTON(REC))) == (BUTTON(EDIT) | BUTTON(REC)) &&
-        (pressed & (BUTTON(EDIT) | BUTTON(REC))) && groove_source_type(track) == GROOVE_DX7) {
-        writing = rec_before_press;
-        edit_down = glo_down = 0;
-        page = NAME; name_cursor = 0;
-        goto controls_done;
     }
     if (pressed & (BUTTON(HOME) | BUTTON(SEQ) | BUTTON(FX) | BUTTON(SCL) |
                    BUTTON(EDIT) | BUTTON(ENV) | BUTTON(LFO))) {
@@ -2144,7 +2158,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         }
         goto controls_done;
     }
-    if (page != STEPS && page != ACTIONS)
+    if (page != STEPS && page != ACTIONS && page != MAP_PAGE)
         {
             int next=clamp(octave + !!(pressed & BUTTON(OCT_UP)) - !!(pressed & BUTTON(OCT_DOWN)), -2, 2);
             if(next!=octave) {octave=next;groove_settings_panel_changed();}
@@ -2267,10 +2281,8 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
             else if (action == 14) r = groove_edit_undo();
             else if (action == 15) { r = groove_timbre_export(track, (uint8_t *)&tone_clip, sizeof tone_clip); tone_clip_ready = !r; }
             else if (action == 16) r = tone_clip_ready ? groove_timbre_import(track, (uint8_t *)&tone_clip, sizeof tone_clip) : -1;
-            else if (action == 17) {
-                if (groove_source_type(track) == GROOVE_DX7) { page = NAME; name_cursor = 0; }
-                else r = -1;
-            } else if (action == 18) { page = MAP_PAGE; }
+            else if (action == 17) { page = MAP_PAGE; map_page = 0; }
+            else if (action == 18) { page = MAP_PAGE; map_page = 1; }
             else {
                 if (!post(0xff, 0, 0, 1)) return 0;
                 memset(key_note, 0xff, sizeof key_note); project_keys = 0; writing = 0; page = OVERVIEW;
@@ -2320,14 +2332,6 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
             if (page == PRESET_BROWSER) preset_refresh();
             announce("PROJECT SAVED", now + 2000U);
             project_operation = 0;
-        }
-    } else if (page == NAME) {
-        name_cursor = (unsigned)clamp((int)name_cursor + controls->encoders[0], 0, 9);
-        if (controls->encoders[2]) {
-            uint8_t patch[156];
-            if (!groove_fm_copy(track, patch, NULL))
-                groove_fm_name_edit(track, name_cursor,
-                    edit_character((char)patch[145 + name_cursor], controls->encoders[2]));
         }
     } else if (page == MAP_PAGE) {
         map_control(controls, pressed);
@@ -2789,6 +2793,7 @@ void smk37_screen_page(unsigned target)
     if(!release_keys())return;
     blocked_keys|=previous_keys;
     glo_down=glo_used=edit_down=seq_down=arp_down=arp_long=rec_down=0;
+    if(target==SMK37_PAGE_MAP) {map_page=page==MAP_PAGE?!map_page:0;}
     page=target==SMK37_PAGE_MIDI?STEPS:
         target==SMK37_PAGE_MAP?MAP_PAGE:SOURCE;
     if(page==STEPS) {music_page=STEPS;seq_page=5;}

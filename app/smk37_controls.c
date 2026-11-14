@@ -21,6 +21,7 @@ static uint8_t wheel_value[2] = {64,0};
 static uint8_t wheel_last_channel[2];
 /* BT button: opens the CONTROL MAP page (the Bluetooth page was removed). */
 enum { BT_BUTTON = 11 };
+static unsigned map_velocity(unsigned v); /* smk37_map.inc */
 
 /* FM1 button IDs remain the common application's interface. Physical IDs
  * come exclusively from the Pro/Elite scanner and are never used as MIDI IDs. */
@@ -175,6 +176,7 @@ static void fader(unsigned id,unsigned value)
        ((fader_valid&(1U<<id)) && ((previous<=target && value>=target) ||
                                  (previous>=target && value<=target))))
         pickup&=~(1U<<id);
+    if(smk37_setup[SMK37_SETUP_FADERS])pickup&=~(1U<<id); /* LIVE SETUP: JUMP */
     faders[id]=value;fader_valid|=1U<<id;
     if(moved && !(pickup&(1U<<id)) && value!=target) {
         if(groove_midi_setting(track,3)) {
@@ -205,7 +207,7 @@ void smk37_control_event(unsigned kind,unsigned id,int value)
                 static const uint8_t slots[13]={0,255,1,255,2,3,255,4,255,5,255,6,7};
                 note=id<13?groove_pad_note(track,slots[id]):128;
             } else note=48+(int)id+12*smk37_performance_octave(0);
-            play(&held_notes[id],(unsigned)note,(unsigned)value,track,1);
+            play(&held_notes[id],(unsigned)note,map_velocity((unsigned)value),track,1);
         }
     } else if(kind==SMK37_PAD && id<16) {
         unsigned bit=1U<<id;
@@ -224,7 +226,7 @@ void smk37_control_event(unsigned kind,unsigned id,int value)
                 unsigned track=smk37_performance_track(1);
                 unsigned count=groove_pad_count(track);
                 unsigned note=count?groove_pad_note(track,id):48+id+12*smk37_performance_octave(1);
-                play(&held_notes[37+id],note,(unsigned)value,track,0);
+                play(&held_notes[37+id],note,map_velocity((unsigned)value),track,0);
             }
         }
         if(previous!=pad_navigation[id]) {

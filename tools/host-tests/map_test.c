@@ -6,6 +6,8 @@
 #include "smk37_controls.h"
 #include "smk37_map.h"
 #include "instrument.h"
+int groove_fm_copy(unsigned track, uint8_t patch[156], struct groove_fm_controls *controls);
+unsigned groove_tempo_current(void);
 void sim_boot(unsigned); const float *sim_render(void); int sim_smk37(unsigned,unsigned,int);
 const uint16_t *sim_pixels(void); void sim_midi_capture(unsigned); unsigned sim_midi_output(void); uint8_t *sim_file(void);
 uint32_t fm1_millis(void);
@@ -36,7 +38,7 @@ int main(void){
   CHECK(e->target==SMK37_MAP_REVERB && e->track==3,"K5 = REVERB T3");
   /* Fader learn: moving F2 selects its row; then MIDI CC 74 ch 2. */
   fader(1,40); fader(1,60);
-  knob(1,5); knob(2,74); knob(3,1);
+  knob(1,14); knob(2,74); knob(3,1);
   e=smk37_map_get(9);
   CHECK(e->target==SMK37_MAP_CC && e->cc==74 && e->channel==1,"F2 learned and set to MIDI CC74 CH2");
   /* F1 -> LEVEL on track 5 (via K1 row navigation). */
@@ -76,5 +78,38 @@ int main(void){
   e=smk37_map_get(9); CHECK(e->target==SMK37_MAP_CC && e->cc==74 && e->channel==1,"F2 assignment survives reboot");
   /* SAVE clears the selected row. */
   button(11,120); CHECK(smk37_screen_map_mode()==2,"BT opens MAP after reboot");
+  /* ---- Live targets, pages and LIVE SETUP ---- */
+  button(2,80); wait(100);
+  button(11,120); CHECK(smk37_screen_map_mode()==2,"BT opens page 1");
+  button(11,120); CHECK(smk37_screen_map_mode()==2,"BT again stays in the menu (page 2)");
+  shot("07_setup");
+  knob(1,3);                                   /* velocity: FIXED 100 */
+  knob(0,1); knob(1,1);                        /* faders: JUMP */
+  CHECK(smk37_setup[0]==3 && smk37_setup[1]==1,"LIVE SETUP velocity FIXED, faders JUMP");
+  button(4,80);                                /* OCT-: back to page 1 */
+  smk37_screen_map_select(6); wait(50);        /* K7 row */
+  knob(1,7); knob(2,1);                        /* LFO WAVE, T1 (DX7 piano) */
+  smk37_screen_map_select(7); wait(50);        /* K8 row */
+  knob(1,13);                                  /* TEMPO */
+  smk37_screen_map_select(1); wait(50);
+  knob(1,9);                                   /* K2 = REV TIME (global) */
+  shot("08_live_targets");
+  CHECK(smk37_map_get(6)->target==SMK37_MAP_LFO_WAVE && smk37_map_get(7)->target==SMK37_MAP_TEMPO,"K7 LFO WAVE, K8 TEMPO");
+  button(2,80); wait(100);
+  uint8_t patch[156]; groove_fm_copy(0,patch,NULL); unsigned w0=patch[142];
+  knob(6,-2); groove_fm_copy(0,patch,NULL);
+  CHECK(patch[142]==w0-2,"K7 changes the DX7 LFO wave of T1 (SINE -> SAW UP)");
+  uint8_t fx0[4],fx1[4]; groove_effects_get(fx0); knob(1,3); groove_effects_get(fx1);
+  CHECK(fx1[0]!=fx0[0],"K2 changes the shared reverb time");
+  struct groove_view tv; groove_get_view(0,0,&tv); unsigned bpm=tv.tempo; knob(7,5); groove_get_view(0,0,&tv);
+  CHECK(tv.tempo!=bpm,"K8 changes the tempo");
+  /* Fader JUMP: F4 (unassigned, T4 level) follows at once, no pickup. */
+  fader(3,10); fader(3,20); groove_get_view(3,0,&tv); CHECK(tv.volume==20,"JUMP: F4 sets T4 level 20 directly");
+  /* Velocity FIXED 100: key note-on on MIDI out carries 100. */
+  sim_midi_capture(1); sim_smk37(SMK37_KEY,12,30); wait(40); sim_smk37(SMK37_KEY,12,0); wait(40);
+  unsigned vel=0,o2; while((o2=sim_midi_output())){ uint8_t *m=sim_file(); if((o2&255)==3 && (m[0]&0xf0)==0x90 && m[2]) vel=m[2]; }
+  CHECK(vel==100,"FIXED velocity sends 100 for a soft key");
+  wait(4000); sim_boot(0); wait(2500);
+  CHECK(smk37_setup[0]==3 && smk37_setup[1]==1 && smk37_map_get(7)->target==SMK37_MAP_TEMPO,"LIVE SETUP and new targets survive reboot");
   printf("fails=%d\n",fails); return fails!=0;
 }
