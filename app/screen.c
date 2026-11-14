@@ -4,6 +4,7 @@
 #include "version.h"
 #include "fm1_engine_control.h"
 #include "smk37_controls.h"
+#include "smk37_map.h"
 #include <string.h>
 enum {
     BACK = 0x0000,
@@ -123,7 +124,7 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
 }
 /* Eight tracks stay visible on HOME. SEQ maps the sixteen white keys to one
  * quarter of the 64-step pattern. All drawing and edits run on app_control. */
-enum { OVERVIEW, STEPS, FM_EDIT, FM_ENV, FM_LFO, TONE_EDIT, MIX, BLE, PROJECT, NAME, EFFECTS, SOURCE, ACTIONS, STEP_EDIT, RHYTHM, FM_QUICK, PRESET_BROWSER, ARP_EDIT, STARTUP };
+enum { OVERVIEW, STEPS, FM_EDIT, FM_ENV, FM_LFO, TONE_EDIT, MIX, BLE, PROJECT, NAME, EFFECTS, SOURCE, ACTIONS, STEP_EDIT, RHYTHM, FM_QUICK, PRESET_BROWSER, ARP_EDIT, STARTUP, MAP_PAGE };
 enum { OCT_DOWN, OCT_UP, FX, SCL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC };
 #define BUTTON(b) (1U << (b))
 static const uint16_t colors[8] = {0x3c9f, 0x07bf, 0x4eae, 0x06d4, 0xac9f, 0xed18, 0xff06, 0xfba5};
@@ -200,6 +201,8 @@ static uint32_t project_keys; /* Held Play pitches across a project remapping. *
 static uint32_t encoder_time[7];
 static int8_t encoder_direction[7];
 static uint8_t encoder_speed[7];
+static unsigned map_row;
+static char map_notice[40];
 static unsigned glo_down, glo_used, ble_device, ble_was_linked, ble_view, ble_action;
 static int ble_result, source_result;
 static unsigned ble_forget, ble_stage, ble_seconds;
@@ -1069,6 +1072,64 @@ static __attribute__((noinline)) void draw_ble(const struct fm1_ble_status *stat
     radio_line(3, 213, error, AMBER);
     radio_line(4, 229, "PRESETS ACTION  SAVE OK  HOME EXIT", DIM);
 }
+/* MAP page: twelve rows K1..K8, F1..F4. Text stays within 40 columns. */
+static void map_name(unsigned control, char out[4])
+{
+    out[0] = control < SMK37_MAP_KNOBS ? 'K' : 'F';
+    out[1] = (char)('1' + (control < SMK37_MAP_KNOBS ? control : control - SMK37_MAP_KNOBS));
+    out[2] = 0;
+}
+static void map_describe(const struct smk37_map_entry *e, char out[24])
+{
+    strcpy(out, smk37_map_target_name(e->target));
+    if (e->target == SMK37_MAP_DEFAULT) return;
+    unsigned n = (unsigned)strlen(out);
+    if (e->target == SMK37_MAP_CC) {
+        out[n] = ' '; decimal(out + n + 1, e->cc, 1);
+        n = (unsigned)strlen(out);
+        memcpy(out + n, " CH", 3); decimal(out + n + 3, e->channel + 1, 1);
+    } else if (e->track >= GROOVE_TRACKS) strcpy(out + n, " SELECTED TRACK");
+    else { memcpy(out + n, " T", 2); decimal(out + n + 2, e->track + 1, 1); }
+}
+static __attribute__((noinline)) void draw_map(void)
+{
+    if (cache->title_cache != 1) {
+        cache->title_cache = 1;
+        memset(cache->cell_cache, 0xff, sizeof cache->cell_cache);
+        memset(cache->tile_cache, 0xff, sizeof cache->tile_cache);
+        erase(0, 0, 240, 240);
+        paint_fill(0, 29, 240, 1, PANEL);
+        text(8, 8, "CONTROL MAP", 2, ACCENT, BACK);
+    }
+    struct smk37_map_entry e;
+    for (unsigned i = 0; i < SMK37_MAP_CONTROLS; ++i) {
+        smk37_map_get(i, &e);
+        uint32_t sig = signature(i == map_row, &e, sizeof e);
+        if (cache->cell_cache[0][i] == sig) continue;
+        cache->cell_cache[0][i] = sig;
+        unsigned y = 36 + i * 13;
+        uint16_t bg = i == map_row ? PANEL : BACK;
+        char name[4], value[24];
+        map_name(i, name); map_describe(&e, value);
+        paint_fill(8, y, 224, 12, bg);
+        text(12, y + 3, name, 1, i == map_row ? ACCENT : DIM, bg);
+        text(36, y + 3, value, 1, e.target == SMK37_MAP_DEFAULT ? DIM : TEXT, bg);
+    }
+    smk37_map_get(map_row, &e);
+    radio_line(0, 196, e.target == SMK37_MAP_CC ? "K2 TARGET  K3 CC NUMBER  K4 CHANNEL"
+        : e.target == SMK37_MAP_DEFAULT ? "K2 TARGET  (DEFAULT = NORMAL USE)"
+        : "K2 TARGET  K3 TRACK (LAST = SELECTED)", ACCENT);
+    radio_line(1, 213, "SAVE: SET DEFAULT   HOLD SHIFT: BYPASS", DIM);
+    radio_line(2, 229, "K1 ROW  MOVE A FADER  HOME EXIT", DIM);
+}
+static __attribute__((noinline)) void map_control(const struct fm1_controls *controls, uint32_t pressed)
+{
+    int rows = controls->encoders[2] + controls->encoders[6];
+    if (rows) map_row = (unsigned)clamp((int)map_row + rows, 0, SMK37_MAP_CONTROLS - 1);
+    for (unsigned i = 0; i < 3; ++i)
+        if (controls->encoders[3 + i]) (void)smk37_map_edit(map_row, i, controls->encoders[3 + i]);
+    if (pressed & BUTTON(SAVE)) smk37_map_clear(map_row);
+}
 static __attribute__((noinline)) void project_draw(void)
 {
     if (project_drawn_revision != groove_project_revision())
@@ -1448,6 +1509,10 @@ static __attribute__((noinline, cold, minsize)) void draw_page_body(const struct
     }
     if (visible == BLE) {
         draw_ble(ble);
+        return;
+    }
+    if (visible == MAP_PAGE) {
+        draw_map();
         return;
     }
     header(v);
@@ -2234,7 +2299,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
     if (pressed & BUTTON(REC)) {
         writing ^= 1U;
         glo_down = 0;
-        if (writing && (page == BLE || page == PROJECT || page == PRESET_BROWSER ||
+        if (writing && (page == BLE || page == MAP_PAGE || page == PROJECT || page == PRESET_BROWSER ||
                        page == MIX || page == NAME || (page >= SOURCE && page <= RHYTHM) ||
                        (page == STEPS && (seq_page == 1 || seq_page == 3)))) {
             page = STEPS; seq_page = 0; step_follow = 1;
@@ -2246,7 +2311,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
             int next=clamp(octave + !!(pressed & BUTTON(OCT_UP)) - !!(pressed & BUTTON(OCT_DOWN)), -2, 2);
             if(next!=octave) {octave=next;groove_settings_panel_changed();}
         }
-    if ((pressed & BUTTON(SAVE)) && page != PROJECT && page != BLE &&
+    if ((pressed & BUTTON(SAVE)) && page != PROJECT && page != BLE && page != MAP_PAGE &&
         page != SOURCE && page != ACTIONS) {
         project_return = page; page = PROJECT; project_result = 0;
         project_reload = project_operation = 0;
@@ -2428,6 +2493,8 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         }
     } else if (page == BLE) {
         ble_control(controls, pressed, ble);
+    } else if (page == MAP_PAGE) {
+        map_control(controls, pressed);
     } else {
         if (page != BLE) {
             unsigned tracks = page == OVERVIEW || page == STEPS || page == FM_QUICK || page == ARP_EDIT ||
@@ -2886,18 +2953,54 @@ void smk37_screen_page(unsigned target)
     if(!release_keys())return;
     blocked_keys|=previous_keys;
     glo_down=glo_used=edit_down=seq_down=arp_down=arp_long=rec_down=0;
-    page=target==SMK37_PAGE_BLUETOOTH?BLE:target==SMK37_PAGE_MIDI?STEPS:SOURCE;
+    page=target==SMK37_PAGE_BLUETOOTH?BLE:target==SMK37_PAGE_MIDI?STEPS:
+        target==SMK37_PAGE_MAP?MAP_PAGE:SOURCE;
     if(page==BLE) {ble_view=ble_forget=ble_action=0;ble_result=0;}
     else if(page==STEPS) {music_page=STEPS;seq_page=5;}
+    else if(page==MAP_PAGE) {}
     else {source_preview=groove_source_type(track);source_result=0;}
     boot_active=0;cache->shown_page=~0U;
+}
+unsigned smk37_screen_map_mode(void)
+{
+    if(page==MAP_PAGE)return 2;
+    return !boot_active && !glo_down && (page==OVERVIEW || page==MIX);
+}
+void smk37_screen_map_select(unsigned control)
+{ if(control<SMK37_MAP_CONTROLS)map_row=control; }
+void smk37_map_feedback_set(unsigned control,unsigned target,unsigned assigned,int value)
+{
+    /* "K5 REVERB T3 60%"; one buffer, shown through the normal notice line. */
+    struct smk37_map_entry e; smk37_map_get(control,&e);
+    char name[4]; map_name(control,name);
+    strcpy(map_notice,name); strcat(map_notice," ");
+    strcat(map_notice,target==SMK37_MAP_CC?"CC":smk37_map_target_name(target));
+    unsigned n=(unsigned)strlen(map_notice);
+    if(target==SMK37_MAP_CC) {
+        decimal(map_notice+n,e.cc,1); strcat(map_notice," CH");
+        n=(unsigned)strlen(map_notice); decimal(map_notice+n,e.channel+1,1);
+    } else if(assigned<GROOVE_TRACKS) {
+        memcpy(map_notice+n," T",2); decimal(map_notice+n+2,(int)assigned+1,1);
+    }
+    if(value<0 && assigned<GROOVE_TRACKS) {
+        if(target==SMK37_MAP_LEVEL) {struct groove_view v;groove_get_view(assigned,0,&v);value=v.volume;}
+        else if(target==SMK37_MAP_REVERB || target==SMK37_MAP_DELAY) {
+            uint8_t sends[2];groove_sends_get(assigned,sends);
+            value=(int)((sends[target==SMK37_MAP_DELAY]*100U+7U)/15U);
+        }
+    }
+    if(value>=0) {
+        n=(unsigned)strlen(map_notice);map_notice[n]=' ';decimal(map_notice+n+1,value,1);
+        if(target==SMK37_MAP_REVERB || target==SMK37_MAP_DELAY)strcat(map_notice,"%");
+    }
+    announce(map_notice,fm1_millis()+1200U);
 }
 void smk37_screen_shortcut(unsigned pad)
 {
     if(pad<8) {
         if(!release_keys())return;
         blocked_keys|=previous_keys;
-        if(page==PROJECT || page==NAME || page==BLE || page==SOURCE || page==PRESET_BROWSER)
+        if(page==PROJECT || page==NAME || page==BLE || page==MAP_PAGE || page==SOURCE || page==PRESET_BROWSER)
             page=music_page=OVERVIEW;
         select_track((int)pad-(int)track);
         notice="TRACK SELECTED";

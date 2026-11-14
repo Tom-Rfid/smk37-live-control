@@ -39,6 +39,8 @@ static int settings_result;
 static unsigned session_dirty, session_pending;
 extern void smk37_panel_preferences_read(uint8_t data[4]) __attribute__((weak));
 extern void smk37_panel_preferences_apply(const uint8_t data[4]) __attribute__((weak));
+extern void smk37_map_preferences_read(uint8_t data[48]) __attribute__((weak));
+extern int smk37_map_preferences_apply(const uint8_t data[48]) __attribute__((weak));
 static int recover_staging(void);
 /* Older SDKs retain their checkpoint/apply path; current engines defer the
  * checkpoint until every required voice allocation has succeeded. */
@@ -160,17 +162,20 @@ static int read_project(unsigned sector)
 enum { TUNING_MAGIC = 0x54314d46U, TUNING_VERSION = 2, SAMPLE_BANK_MAGIC = 0x53314d46U };
 struct tuning_entry { uint32_t key; struct groove_tuning t[GROOVE_TRACKS]; uint32_t crc; };
 /* Optional tail leaves every existing tuning entry at its original offset. */
-enum { SESSION_MAGIC = 0x31534d46U, PANEL_MAGIC = 0x31504b53U };
+enum { SESSION_MAGIC = 0x31534d46U, PANEL_MAGIC = 0x31504b53U, MAP_MAGIC = 0x314d4b53U };
 struct session_settings { uint32_t magic; uint8_t role[8], channel[8]; uint32_t crc; };
 struct panel_settings { uint32_t magic; uint8_t data[4]; uint32_t crc; };
-struct tuning_sector { uint32_t magic, version; struct tuning_entry entry[GROOVE_PROJECT_SLOTS]; struct session_settings session; struct panel_settings panel; };
+/* SMK37 knob/fader assignments (MAP page): 12 controls x 4 bytes. */
+enum { MAP_SETTINGS_BYTES = 48 };
+struct map_settings { uint32_t magic; uint8_t data[MAP_SETTINGS_BYTES]; uint32_t crc; };
+struct tuning_sector { uint32_t magic, version; struct tuning_entry entry[GROOVE_PROJECT_SLOTS]; struct session_settings session; struct panel_settings panel; struct map_settings map; };
 struct tuning_block { uint32_t magic; struct groove_tuning t[GROOVE_TRACKS]; uint32_t crc; };
 _Static_assert(sizeof(struct groove_tuning) == 24, "tuning table layout");
 _Static_assert(sizeof(struct tuning_entry) == 200, "tuning entry layout");
 _Static_assert(sizeof(struct tuning_block) == GROOVE_TUNING_BLOCK_BYTES, "tuning block layout");
 _Static_assert(sizeof(struct tuning_sector) <= FM1_FLASH_SECTOR_BYTES, "one tuning sector");
 enum { LEGACY_TUNING_JOURNAL_MAGIC = 0x4a544d46U, SESSION_TUNING_JOURNAL_MAGIC = 0x4b544d46U,
-       TUNING_JOURNAL_MAGIC = 0x4c544d46U,
+       PANEL_TUNING_JOURNAL_MAGIC = 0x4c544d46U, TUNING_JOURNAL_MAGIC = 0x4d544d46U,
        TUNING_JOURNAL_ADDRESS = STAGING_SECTOR * FM1_FLASH_SECTOR_BYTES };
 struct tuning_journal { uint32_t magic, crc, commit; };
 _Static_assert(sizeof(struct tuning_journal) + sizeof(struct tuning_sector) <= FM1_FLASH_SECTOR_BYTES,
@@ -193,6 +198,7 @@ static unsigned tuning_journal_bytes(unsigned magic)
 {
     return magic==LEGACY_TUNING_JOURNAL_MAGIC?offsetof(struct tuning_sector,session):
         magic==SESSION_TUNING_JOURNAL_MAGIC?offsetof(struct tuning_sector,panel):
+        magic==PANEL_TUNING_JOURNAL_MAGIC?offsetof(struct tuning_sector,map):
         magic==TUNING_JOURNAL_MAGIC?sizeof(struct tuning_sector):0;
 }
 /* A committed tuning journal is authoritative until its destination verifies. */
@@ -766,6 +772,14 @@ static int session_settings_load(unsigned before_project)
            p.crc==~groove_crc32(~0U,&p,offsetof(struct panel_settings,crc)))
             smk37_panel_preferences_apply(p.data);
     }
+    if(!before_project && smk37_map_preferences_apply) {
+        /* Firmware without this tail reads 0xff here: no valid magic. */
+        struct map_settings m;
+        r=fm1_flash_read(address+offsetof(struct tuning_sector,map),&m,sizeof m);
+        if(r)return r;
+        if(m.magic==MAP_MAGIC && m.crc==~groove_crc32(~0U,&m,offsetof(struct map_settings,crc)))
+            (void)smk37_map_preferences_apply(m.data);
+    }
     return 0;
 }
 static int session_settings_save(void)
@@ -789,6 +803,13 @@ static int session_settings_save(void)
             p.crc=~groove_crc32(~0U,&p,offsetof(struct panel_settings,crc));
             changed|=memcmp(&s->panel,&p,sizeof p)!=0;
             s->panel=p;
+        }
+        if(smk37_map_preferences_read) {
+            struct map_settings m={.magic=MAP_MAGIC};
+            smk37_map_preferences_read(m.data);
+            m.crc=~groove_crc32(~0U,&m,offsetof(struct map_settings,crc));
+            changed|=memcmp(&s->map,&m,sizeof m)!=0;
+            s->map=m;
         }
         if(changed)r=tuning_commit(s);
     }

@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception
  * Physical controls shared by Pro, Elite, host tests and the workbench. */
 #include "smk37_controls.h"
+#include "smk37_map.h"
 #include "instrument.h"
 #include <string.h>
 
@@ -18,6 +19,10 @@ static uint8_t pad_pressure[16], channel_pressure[16];
 static uint16_t wheel_channels[2];
 static uint8_t wheel_value[2] = {64,0};
 static uint8_t wheel_last_channel[2];
+/* BT button: short press opens BLUETOOTH on release, a long press opens MAP. */
+enum { BT_BUTTON = 11, BT_LONG_MS = 600 };
+static uint8_t bt_down, bt_long;
+static uint32_t bt_ms;
 
 /* FM1 button IDs remain the common application's interface. Physical IDs
  * come exclusively from the Pro/Elite scanner and are never used as MIDI IDs. */
@@ -80,7 +85,7 @@ void smk37_controls_panic(void)
     /* Queue loss can discard button-up and encoder events as well as notes. */
     physical_buttons=shifted_buttons=panel.buttons=shortcut_pads=0;
     memset(panel.encoders,0,sizeof panel.encoders);
-    pedal_down=0;
+    pedal_down=0;bt_down=bt_long=0;
     wheel_value[0]=64;wheel_value[1]=0;
 }
 
@@ -153,7 +158,17 @@ static void pressure(unsigned id,unsigned value)
 
 static void fader(unsigned id,unsigned value)
 {
-    unsigned track=4*bank+id;
+    /* MAP page: a moved fader selects its own row instead of editing. */
+    if(smk37_screen_map_mode()==2) {
+        if(fader_valid&(1U<<id) && value!=faders[id])smk37_screen_map_select(SMK37_MAP_KNOBS+id);
+        faders[id]=value;fader_valid|=1U<<id;(void)smk37_map_fader(id,value);
+        return;
+    }
+    if(smk37_map_fader(id,value)) {faders[id]=value;fader_valid|=1U<<id;return;}
+    struct smk37_map_entry assigned;
+    smk37_map_get(SMK37_MAP_KNOBS+id,&assigned);
+    unsigned mapped=assigned.target==SMK37_MAP_LEVEL;
+    unsigned track=!mapped?4*bank+id:assigned.track<GROOVE_TRACKS?assigned.track:smk37_screen_track()%GROOVE_TRACKS;
     struct groove_view view;groove_get_view(track,0,&view);
     unsigned target=view.volume, previous=faders[id];
     unsigned moved=(fader_valid&(1U<<id)) && value!=previous;
@@ -173,6 +188,7 @@ static void fader(unsigned id,unsigned value)
             targets[track]=value;
         }
         groove_midi_fader(track,value);
+        if(mapped)smk37_map_feedback_set(SMK37_MAP_KNOBS+id,SMK37_MAP_LEVEL,track,-1);
     }
     if(moved) {
         /* A generation byte preserves repeated motion between UI polls.
@@ -225,6 +241,7 @@ void smk37_control_event(unsigned kind,unsigned id,int value)
     } else if(kind==SMK37_PRESSURE && id<16) {
         pressure(id,(unsigned)value);
     } else if(kind==SMK37_ENCODER && id<8) {
+        if(smk37_map_encoder(id,value))return;
         if(id<7) {
             int sum=panel.encoders[encoder_map[id]]+value;
             panel.encoders[encoder_map[id]]=sum>32767?32767:sum<-32768?-32768:sum;
@@ -275,6 +292,10 @@ void smk37_control_event(unsigned kind,unsigned id,int value)
         if(!!was==!!value)return;
         if(value)physical_buttons|=bit;else physical_buttons&=~bit;
         if(!value)shifted_buttons&=~bit;
+        if(!value && id==BT_BUTTON && bt_down) {
+            bt_down=0;
+            if(!bt_long)smk37_screen_page(SMK37_PAGE_BLUETOOTH);
+        }
         if(value) {
             if(physical_buttons&1U)shifted_buttons|=bit&((1U<<9)|(1U<<12)|(1U<<15));
             if(id==1) {bank^=1;pickup=15;}
@@ -286,7 +307,7 @@ void smk37_control_event(unsigned kind,unsigned id,int value)
                 memset(pad_navigation,255,sizeof pad_navigation);panel.keys=0;
                 smk37_screen_pad_mode(step_pads,instrument);
             }
-            else if(id==11)smk37_screen_page(SMK37_PAGE_BLUETOOTH);
+            else if(id==BT_BUTTON) {bt_down=1;bt_long=0;bt_ms=fm1_millis();}
             else if(id==12 && (physical_buttons&1U))smk37_screen_page(SMK37_PAGE_SOURCE);
             else if(id==15 && (physical_buttons&1U))smk37_screen_page(SMK37_PAGE_MIDI);
         }
@@ -305,6 +326,9 @@ void smk37_control_event(unsigned kind,unsigned id,int value)
 void smk37_controls_snapshot(struct fm1_controls *out)
 {
     groove_midi_poll();
+    if(bt_down && !bt_long && fm1_millis()-bt_ms>=BT_LONG_MS) {
+        bt_long=1;smk37_screen_page(SMK37_PAGE_MAP);
+    }
     *out=panel;memset(panel.encoders,0,sizeof panel.encoders);
 }
 unsigned smk37_fader_bank(void) {return bank;}
@@ -329,6 +353,7 @@ void smk37_master_set(unsigned level)
 {panel.knob=level;master=(level*127U+511U)/1023U;}
 void smk37_controls_release(void)
 {
+    bt_down=bt_long=0; /* A forced release is not a BT short press. */
     for(unsigned i=0;i<37;++i)smk37_control_event(SMK37_KEY,i,0);
     for(unsigned i=0;i<16;++i)smk37_control_event(SMK37_PAD,i,0);
     for(unsigned i=0;i<18;++i)smk37_control_event(SMK37_BUTTON,i,0);

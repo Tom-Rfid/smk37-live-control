@@ -354,6 +354,14 @@ void groove_midi_fader(unsigned track, unsigned value)
     uint8_t m[3] = {(uint8_t)(0xb0U | channel(track)), 7, (uint8_t)value};
     send_event(LIVE_OWNER + track, config.flags & 7U, m);
 }
+/* User-assigned panel controller (MAP page): an explicit external CC on the
+ * enabled output ports. It never reaches the local engine. */
+void groove_midi_cc_out(unsigned ch, unsigned cc, unsigned value)
+{
+    if (ch > 15 || cc > 127 || value > 127) return;
+    uint8_t m[3] = {(uint8_t)(0xb0U | ch), (uint8_t)cc, (uint8_t)value};
+    send_event(THRU_OWNER + ch, config.flags & 7U, m);
+}
 int groove_midi_clock_accept(unsigned source, uint8_t status)
 {
     if (source >= 3) return 0;

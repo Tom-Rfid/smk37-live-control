@@ -30,7 +30,13 @@ void smk37_panel_preferences_apply(const uint8_t data[4]);
 void groove_settings_panel_changed(void);
 int smk37_screen_pad(unsigned pad, unsigned velocity, unsigned steps);
 unsigned smk37_screen_pad_key(unsigned pad);
-enum { SMK37_PAGE_BLUETOOTH, SMK37_PAGE_SOURCE, SMK37_PAGE_MIDI };
+enum { SMK37_PAGE_BLUETOOTH, SMK37_PAGE_SOURCE, SMK37_PAGE_MIDI, SMK37_PAGE_MAP };
 void smk37_screen_page(unsigned page);
+/* 0: knob assignments bypassed (editor pages), 1: assignments active
+ * (performance pages), 2: the MAP page is open. */
+unsigned smk37_screen_map_mode(void);
+/* MAP page: select a control row (fader learn) and report assigned motion. */
+void smk37_screen_map_select(unsigned control);
+void smk37_map_feedback_set(unsigned control, unsigned target, unsigned track, int value);
 void smk37_screen_shortcut(unsigned pad);
 #endif

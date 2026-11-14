@@ -367,6 +367,7 @@ void groove_midi_poll(void);
 void groove_midi_panic(void);
 int groove_midi_local(const uint8_t *message, size_t bytes);
 void groove_midi_fader(unsigned track, unsigned value);
+void groove_midi_cc_out(unsigned channel, unsigned cc, unsigned value);
 unsigned groove_midi_setting(unsigned track, unsigned parameter);
 void groove_settings_midi(unsigned track, unsigned parameter, int delta);
 /* parameter 0 role, 1 input channel. Changes retain all eight project rows. */
