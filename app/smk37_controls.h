@@ -35,8 +35,7 @@ void smk37_screen_page(unsigned page);
 /* 0: knob assignments bypassed (editor pages), 1: assignments active
  * (performance pages), 2: the MAP page is open. */
 unsigned smk37_screen_map_mode(void);
-/* MAP page: select a control row (fader learn) and report assigned motion. */
+/* MAP page: select a control row (fader learn). */
 void smk37_screen_map_select(unsigned control);
-void smk37_map_feedback_set(unsigned control, unsigned target, unsigned track, int value);
 void smk37_screen_shortcut(unsigned pad);
 #endif

@@ -1,7 +1,9 @@
 # Control map (BT long press)
 
-Hold **BT** for 0.6 s to open **CONTROL MAP**. A short press still opens the
-BLUETOOTH page (on release).
+Press **BT** to open **CONTROL MAP**. This build removes the BLUETOOTH settings
+page (and its HOME+GLO and ACTIONS shortcuts now open CONTROL MAP): the V01 app
+image had only 29 bytes of free Flash, and the page's code makes room for the map.
+The Bluetooth stack itself is part of the binary SDK and stays as last configured.
 
 Each of the twelve controls, K1–K8 and F1–F4, can keep its normal behaviour
 (`DEFAULT`) or drive one target:
@@ -18,8 +20,8 @@ sent on the enabled MIDI output ports only; it does not reach the internal
 engine.
 
 On the MAP page: **K1** (or PRESETS) chooses the row, **K2** the target,
-**K3** the track or CC number, **K4** the MIDI channel. Moving a fader selects
-its row. **SAVE** sets the row back to DEFAULT. **HOME** exits.
+**K3** the track (SEL = selected track) or CC number, **K4** the MIDI channel.
+Moving a fader selects its row. **SAVE** sets the row back to DEFAULT. **HOME** exits.
 
 Knob assignments are active on HOME and MIX only; editor pages keep their own
 knobs, and holding **SHIFT** bypasses them. Fader assignments apply on every
@@ -33,3 +35,5 @@ changes to 0x4d544d46 (full sector); 0x4c544d46 journals from V01 are still
 read with their original length.
 
 Host test: `tools/host-tests/run.sh` (clang on Linux, macOS or WSL).
+
+Size: Elite build 452,324-byte app image for a 453,921-byte limit (V01: 453,892).

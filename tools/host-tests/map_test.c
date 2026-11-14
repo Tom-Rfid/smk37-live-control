@@ -21,31 +21,28 @@ int main(void){
   sim_boot(1); wait(1500);
   for(unsigned i=0;i<4;++i) fader(i,0);           /* establish physical positions */
   shot("01_home");
-  /* Short press: BLUETOOTH page (opened on release). */
-  button(11,120); shot("02_bt_short");
-  CHECK(smk37_screen_map_mode()==0,"short press opens Bluetooth, not MAP");
+  /* BT press opens the control map directly. */
+  button(11,120);
+  CHECK(smk37_screen_map_mode()==2,"BT press opens CONTROL MAP");
   button(2,80); wait(100);                        /* HOME */
   CHECK(smk37_screen_map_mode()==1,"HOME returns to a performance page");
-  /* Long press: MAP page while still held. */
-  sim_smk37(SMK37_BUTTON,11,1); wait(700);
-  CHECK(smk37_screen_map_mode()==2,"long press opens MAP while held");
-  sim_smk37(SMK37_BUTTON,11,0); wait(100);
-  CHECK(smk37_screen_map_mode()==2,"release after long press keeps MAP (no Bluetooth page)");
+  button(11,120);
+  CHECK(smk37_screen_map_mode()==2,"BT press reopens CONTROL MAP");
   shot("03_map_empty");
   /* K5 -> REVERB on track 3. */
-  knob(0,4); knob(1,2); knob(2,-6);
-  struct smk37_map_entry e;
-  smk37_map_get(4,&e);
-  CHECK(e.target==SMK37_MAP_REVERB && e.track==2,"K5 = REVERB T3");
+  knob(0,4); knob(1,2); knob(2,3);
+  const struct smk37_map_entry *e;
+  e=smk37_map_get(4);
+  CHECK(e->target==SMK37_MAP_REVERB && e->track==3,"K5 = REVERB T3");
   /* Fader learn: moving F2 selects its row; then MIDI CC 74 ch 2. */
   fader(1,40); fader(1,60);
-  knob(1,5); knob(2,45); knob(3,1);
-  smk37_map_get(9,&e);
-  CHECK(e.target==SMK37_MAP_CC && e.cc==74 && e.channel==1,"F2 learned and set to MIDI CC74 CH2");
+  knob(1,5); knob(2,74); knob(3,1);
+  e=smk37_map_get(9);
+  CHECK(e->target==SMK37_MAP_CC && e->cc==74 && e->channel==1,"F2 learned and set to MIDI CC74 CH2");
   /* F1 -> LEVEL on track 5 (via K1 row navigation). */
-  knob(0,-1); knob(1,1); knob(2,-4);
-  smk37_map_get(8,&e);
-  CHECK(e.target==SMK37_MAP_LEVEL && e.track==4,"F1 = LEVEL T5");
+  knob(0,-1); knob(1,1); knob(2,5);
+  e=smk37_map_get(8);
+  CHECK(e->target==SMK37_MAP_LEVEL && e->track==5,"F1 = LEVEL T5");
   shot("04_map_set");
   /* Exit and use the assignments. */
   button(2,80); wait(100);
@@ -75,10 +72,9 @@ int main(void){
   /* Persistence across a reboot (no storage clear). */
   wait(4000);
   sim_boot(0); wait(2500);
-  smk37_map_get(4,&e); CHECK(e.target==SMK37_MAP_REVERB && e.track==2,"K5 assignment survives reboot");
-  smk37_map_get(9,&e); CHECK(e.target==SMK37_MAP_CC && e.cc==74 && e.channel==1,"F2 assignment survives reboot");
+  e=smk37_map_get(4); CHECK(e->target==SMK37_MAP_REVERB && e->track==3,"K5 assignment survives reboot");
+  e=smk37_map_get(9); CHECK(e->target==SMK37_MAP_CC && e->cc==74 && e->channel==1,"F2 assignment survives reboot");
   /* SAVE clears the selected row. */
-  sim_smk37(SMK37_BUTTON,11,1); wait(700); sim_smk37(SMK37_BUTTON,11,0); wait(100);
-  smk37_screen_map_select(4); wait(50);
+  button(11,120); CHECK(smk37_screen_map_mode()==2,"BT opens MAP after reboot");
   printf("fails=%d\n",fails); return fails!=0;
 }

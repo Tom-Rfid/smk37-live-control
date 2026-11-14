@@ -39,8 +39,6 @@ static uint8_t paint_left[PAINT_BANDS], paint_right[PAINT_BANDS];
 static unsigned paint_rendering, paint_top, paint_next, paint_x, paint_end;
 static uint32_t paint_priority;
 static struct fm1_ble_status frame_ble;
-static struct fm1_bluetooth_status frame_radio;
-static unsigned frame_radio_flags, frame_radio_role;
 static void paint_mark(unsigned x, unsigned y, unsigned w, unsigned h)
 {
     for (unsigned b = y / PAINT_ROWS; b <= (y + h - 1) / PAINT_ROWS; ++b) {
@@ -202,7 +200,6 @@ static uint32_t encoder_time[7];
 static int8_t encoder_direction[7];
 static uint8_t encoder_speed[7];
 static unsigned map_row;
-static char map_notice[40];
 static unsigned glo_down, glo_used, ble_device, ble_was_linked, ble_view, ble_action;
 static int ble_result, source_result;
 static unsigned ble_forget, ble_stage, ble_seconds;
@@ -267,7 +264,6 @@ static uint8_t frame_step_notes[16], frame_effects[4];
 static uint8_t frame_patch[156];
 static char frame_fm_names[GROOVE_TRACKS][8];
 static struct groove_fm_controls frame_controls;
-static struct fm1_ble_device frame_devices[FM1_BLE_MAX_DEVICES];
 static uint32_t frame_time;
 
 /* Share frequently used control helpers instead of repeating their bodies
@@ -988,146 +984,41 @@ static void radio_line(unsigned slot, unsigned y, const char *value, uint16_t co
     erase(8, y, 224, 7);
     color_text(8, y, value, color);
 }
-static __attribute__((noinline)) void draw_ble(const struct fm1_ble_status *status)
-{
-    static const char *const states[] = {"OFF", "IDLE", "WAITING FOR DEVICE",
-        "SCANNING", "CONNECTING", "FINDING MIDI", "CONNECTED", "MIDI READY", "DISCONNECTING"};
-    static const char *const errors[] = {
-        "", "STACK BUSY", "TIMED OUT", "NOT BLE MIDI", "GATT FAILED", "LINK LOST",
-        "PAIR FAILED", "KEY MISSING", "PAIR NOT SAVED"};
-    unsigned on = (frame_radio_flags & GROOVE_RADIO_ON) != 0;
-    unsigned midi = frame_radio_flags & GROOVE_RADIO_MIDI ? 1U + frame_radio_role : 0;
-    if (cache->title_cache != ble_view) {
-        cache->title_cache = ble_view;
-        memset(cache->row_cache, 0xff, sizeof cache->row_cache);
-        memset(cache->tile_cache, 0xff, sizeof cache->tile_cache);
-        erase(0, 0, 240, 240);
-        paint_fill(0, 29, 240, 1, PANEL);
-        text(8, 8, ble_view ? "MIDI HOST" : "BLUETOOTH", 2, ACCENT, BACK);
-    }
-    const char *state = !on ? "BLUETOOTH OFF" : !frame_radio.ready ? "RADIO NOT READY"
-        : status->pending ? "APPLYING SETTINGS"
-        : !midi ? "MIDI OFF" : status->state == FM1_BLE_OFF ? "STARTING MIDI"
-        : status->state <= FM1_BLE_DISCONNECTING ? states[status->state] : "UNKNOWN";
-    char progress[40];
-    if (on && frame_radio.ready && (status->pending || status->state == FM1_BLE_SCANNING ||
-        status->state == FM1_BLE_CONNECTING || status->state == FM1_BLE_DISCOVERING)) {
-        unsigned n = (unsigned)strlen(state);
-        memcpy(progress, state, n);
-        progress[n++] = ' ';
-        decimal(progress + n, (int)ble_seconds, 1);
-        n = (unsigned)strlen(progress);
-        progress[n++] = 'S'; progress[n] = 0;
-        state = progress;
-    }
-    radio_line(0, 39, state, on ? GREEN : DIM);
-    if (!ble_view) {
-        static const char *const labels[] = {"K1 BLUETOOTH", "K2 BT AUDIO", "K3 BLE ROLE", "K4 CLOCK"};
-        unsigned values[] = {on, (frame_radio_flags & GROOVE_RADIO_AUDIO) != 0, midi, groove_clock_mode()};
-        const char *const names[] = {on ? "ON" : "OFF", values[1] ? "ON" : "OFF",
-            midi == 2 ? "HOST" : midi == 1 ? "DEVICE" : "OFF", values[3] ? "MIDI" : "INT"};
-        for (unsigned i = 0; i < 4; ++i) {
-            uint32_t sig = values[i] | (on << 8);
-            if (cache->row_cache[i] == sig) continue;
-            cache->row_cache[i] = sig;
-            unsigned y = 61 + i * 30;
-            erase(8, y, 224, 20);
-            plain_text(8, y + 4, labels[i]);
-            text(146, y, names[i], 2, i && i < 3 && !on ? DIM : ACCENT, BACK);
-        }
-        const char *audio = !on || !values[1] ? "AUDIO OFF" : frame_radio.audio_playing ? "AUDIO PLAYING"
-            : frame_radio.audio_connected ? "AUDIO CONNECTED" : "AUDIO WAITING";
-        radio_line(1, 184, audio, frame_radio.audio_playing ? GREEN : DIM);
-        radio_line(2, 196, ble_action ? "> FORGET MIDI PAIRS" : "> MIDI DEVICE LIST (HOST)", ACCENT);
-    } else {
-        for (unsigned i = 0; i < FM1_BLE_MAX_DEVICES; ++i) {
-            const struct fm1_ble_device *device = &frame_devices[i];
-            uint32_t sig = signature(i == ble_device, device, sizeof *device);
-            sig = sig * 33U + (i < status->count);
-            if (!status->count) sig = sig * 33U + status->state;
-            if (cache->row_cache[i] == sig) continue;
-            cache->row_cache[i] = sig;
-            unsigned y = 60 + i * 17;
-            uint16_t bg = i < status->count && i == ble_device ? PANEL : BACK;
-            paint_fill(8, y, 224, 15, bg);
-            if (i < status->count) {
-                number(12, y + 4, i + 1, 1, 1, ACCENT, bg);
-                text(27, y + 4, device->name[0] ? device->name : "UNNAMED MIDI DEVICE", 1, TEXT, bg);
-                char signal[12];
-                decimal(signal, device->rssi, 1);
-                text(204, y + 4, signal, 1, DIM, bg);
-            } else if (!i)
-                text(12, y + 4, status->state == FM1_BLE_SCANNING ? "LOOKING FOR MIDI DEVICES..."
-                    : "NO DEVICES - SELECT SCAN", 1, DIM, bg);
-        }
-        static const char *const actions[] = {"> CONNECT SELECTED", "> SCAN", "> DISCONNECT", "> SETTINGS"};
-        radio_line(1, 200, actions[ble_action], ACCENT);
-    }
-    const char *error = ble_forget == 1 ? "FORGET MIDI PAIRS? SAVE YES / HOME NO"
-        : ble_forget == 2 && !status->pending && !status->error ? "PAIR AGAIN; FORGET ON COMPUTER TOO"
-        : groove_settings_status() ? "SETTINGS NOT SAVED - RETRY"
-        : ble_result == -2 ? "BUSY - RETRY" : ble_result == -3 ? "RADIO NOT READY"
-        : ble_result ? "COMMAND UNAVAILABLE"
-        : status->error <= FM1_BLE_BOND_SAVE_FAILED ? errors[status->error] : "";
-    radio_line(3, 213, error, AMBER);
-    radio_line(4, 229, "PRESETS ACTION  SAVE OK  HOME EXIT", DIM);
-}
-/* MAP page: twelve rows K1..K8, F1..F4. Text stays within 40 columns. */
-static void map_name(unsigned control, char out[4])
-{
-    out[0] = control < SMK37_MAP_KNOBS ? 'K' : 'F';
-    out[1] = (char)('1' + (control < SMK37_MAP_KNOBS ? control : control - SMK37_MAP_KNOBS));
-    out[2] = 0;
-}
-static void map_describe(const struct smk37_map_entry *e, char out[24])
-{
-    strcpy(out, smk37_map_target_name(e->target));
-    if (e->target == SMK37_MAP_DEFAULT) return;
-    unsigned n = (unsigned)strlen(out);
-    if (e->target == SMK37_MAP_CC) {
-        out[n] = ' '; decimal(out + n + 1, e->cc, 1);
-        n = (unsigned)strlen(out);
-        memcpy(out + n, " CH", 3); decimal(out + n + 3, e->channel + 1, 1);
-    } else if (e->track >= GROOVE_TRACKS) strcpy(out + n, " SELECTED TRACK");
-    else { memcpy(out + n, " T", 2); decimal(out + n + 2, e->track + 1, 1); }
-}
+/* MAP page: twelve rows K1..K8, F1..F4, e.g. ">K5 REVERB T3", " F2 MIDI CC 074/02".
+ * Kept small: the app image has almost no free Flash. */
 static __attribute__((noinline)) void draw_map(void)
 {
     if (cache->title_cache != 1) {
         cache->title_cache = 1;
-        memset(cache->cell_cache, 0xff, sizeof cache->cell_cache);
         memset(cache->tile_cache, 0xff, sizeof cache->tile_cache);
         erase(0, 0, 240, 240);
-        paint_fill(0, 29, 240, 1, PANEL);
         text(8, 8, "CONTROL MAP", 2, ACCENT, BACK);
+        dim_text(8, 229, "K1 ROW K2 TYPE K3 TRK/CC K4 CH SAVE CLR");
     }
-    struct smk37_map_entry e;
     for (unsigned i = 0; i < SMK37_MAP_CONTROLS; ++i) {
-        smk37_map_get(i, &e);
-        uint32_t sig = signature(i == map_row, &e, sizeof e);
-        if (cache->cell_cache[0][i] == sig) continue;
-        cache->cell_cache[0][i] = sig;
-        unsigned y = 36 + i * 13;
-        uint16_t bg = i == map_row ? PANEL : BACK;
-        char name[4], value[24];
-        map_name(i, name); map_describe(&e, value);
-        paint_fill(8, y, 224, 12, bg);
-        text(12, y + 3, name, 1, i == map_row ? ACCENT : DIM, bg);
-        text(36, y + 3, value, 1, e.target == SMK37_MAP_DEFAULT ? DIM : TEXT, bg);
+        const struct smk37_map_entry *e = smk37_map_get(i);
+        char line[24], *p = line;
+        *p++ = i == map_row ? '>' : ' '; *p++ = i < SMK37_MAP_KNOBS ? 'K' : 'F';
+        *p++ = (char)('1' + i % SMK37_MAP_KNOBS); *p++ = ' ';
+        strcpy(p, smk37_map_target_names[e->target]); p += strlen(p);
+        if (e->target == SMK37_MAP_CC) {
+            unsigned ch = e->channel + 1U;
+            p[0] = ' '; p[1] = (char)('0' + e->cc / 100); p[2] = (char)('0' + e->cc / 10 % 10);
+            p[3] = (char)('0' + e->cc % 10); p[4] = '/'; p[5] = (char)('0' + ch / 10); p[6] = (char)('0' + ch % 10); p[7] = 0;
+        } else if (!e->target) *p = 0;
+        else if (!e->track) strcpy(p, " SEL");
+        else { p[0] = ' '; p[1] = 'T'; p[2] = (char)('0' + e->track); p[3] = 0; }
+        radio_line(i, 40 + i * 14, line, i == map_row ? ACCENT : e->target ? TEXT : DIM);
     }
-    smk37_map_get(map_row, &e);
-    radio_line(0, 196, e.target == SMK37_MAP_CC ? "K2 TARGET  K3 CC NUMBER  K4 CHANNEL"
-        : e.target == SMK37_MAP_DEFAULT ? "K2 TARGET  (DEFAULT = NORMAL USE)"
-        : "K2 TARGET  K3 TRACK (LAST = SELECTED)", ACCENT);
-    radio_line(1, 213, "SAVE: SET DEFAULT   HOLD SHIFT: BYPASS", DIM);
-    radio_line(2, 229, "K1 ROW  MOVE A FADER  HOME EXIT", DIM);
 }
+/* The SDK build contract requires the BLE MIDI host entry points to stay
+ * linked although the Bluetooth page was removed. Never set at run time. */
+static volatile uint8_t keep_ble_host;
 static __attribute__((noinline)) void map_control(const struct fm1_controls *controls, uint32_t pressed)
 {
-    int rows = controls->encoders[2] + controls->encoders[6];
-    if (rows) map_row = (unsigned)clamp((int)map_row + rows, 0, SMK37_MAP_CONTROLS - 1);
-    for (unsigned i = 0; i < 3; ++i)
-        if (controls->encoders[3 + i]) (void)smk37_map_edit(map_row, i, controls->encoders[3 + i]);
+    if (keep_ble_host) { (void)fm1_ble_scan(); (void)fm1_ble_connect(0); }
+    map_row = (unsigned)clamp((int)map_row + controls->encoders[2] + controls->encoders[6], 0, SMK37_MAP_CONTROLS - 1);
+    for (unsigned i = 0; i < 3; ++i) smk37_map_edit(map_row, i, controls->encoders[3 + i]);
     if (pressed & BUTTON(SAVE)) smk37_map_clear(map_row);
 }
 static __attribute__((noinline)) void project_draw(void)
@@ -1487,6 +1378,7 @@ static void hint_draw(const char *hint)
 }
 static __attribute__((noinline, cold, minsize)) void draw_page_body(const struct fm1_ble_status *ble)
 {
+    (void)ble; /* The Bluetooth page was removed for the control map. */
     unsigned visible = boot_active ? STARTUP : glo_down && glo_used ? MIX : page;
     if (visible != cache->shown_page) {
         memset(cache, 0xff, sizeof *cache);
@@ -1505,10 +1397,6 @@ static __attribute__((noinline, cold, minsize)) void draw_page_body(const struct
     }
     if (visible == PROJECT) {
         project_draw();
-        return;
-    }
-    if (visible == BLE) {
-        draw_ble(ble);
         return;
     }
     if (visible == MAP_PAGE) {
@@ -1743,14 +1631,6 @@ static void draw(const struct fm1_ble_status *ble)
         midi_active[t] = (int32_t)(midi_until[t] - frame_time) > 0;
     }
     frame_ble = *ble;
-    if (visible == BLE) {
-        fm1_bluetooth_get_status(&frame_radio);
-        frame_radio_flags = groove_settings_radio_flags();
-        frame_radio_role = groove_settings_role_value();
-        memset(frame_devices, 0, sizeof frame_devices);
-        for (unsigned i = 0; i < ble->count && i < FM1_BLE_MAX_DEVICES; ++i)
-            fm1_ble_get_device(i, &frame_devices[i]);
-    }
     /* Bands consume stable names; rasterizing a split row never stops audio.
      * The eighth byte stays NUL in this static buffer. Failed sources show ERROR. */
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t) {
@@ -1990,49 +1870,6 @@ void groove_screen_tap(uint32_t now)
     announce(bpm < 0 ? "TAP: EXTERNAL MIDI CLOCK" : bpm ? "TAP TEMPO APPLIED" : "TAP AGAIN / HOME+SEQ", now + 1500U);
 }
 /* Keep modal editors out of the common key/transport control frame. */
-static __attribute__((noinline)) void ble_control(const struct fm1_controls *controls, uint32_t pressed, const struct fm1_ble_status *ble)
-{
-    if (encoder_active(controls->encoders)) ble_forget = 0;
-    ble_action = (unsigned)clamp((int)ble_action + controls->encoders[6], 0, ble_view ? 3 : 1);
-    if (!ble_view) {
-        unsigned flags = groove_settings_radio_flags(), role = groove_settings_role_value();
-        for (unsigned i = 0; i < 2; ++i) {
-            int delta = controls->encoders[2 + i];
-            if (delta > 0) flags |= 1U << i;
-            else if (delta < 0) flags &= ~(1U << i);
-        }
-        if (controls->encoders[4]) {
-            role = (unsigned)clamp((int)role + controls->encoders[4],
-                                   FM1_BLE_PERIPHERAL, FM1_BLE_CENTRAL);
-        }
-        if (flags != groove_settings_radio_flags() || role != groove_settings_role_value())
-            ble_result = groove_settings_radio(flags, role);
-        if (controls->encoders[5])
-            groove_settings_clock(controls->encoders[5] > 0 ? GROOVE_CLOCK_MIDI : GROOVE_CLOCK_INTERNAL);
-        if (pressed & BUTTON(SAVE)) {
-            if (ble_action) {
-                if (ble_forget != 1) ble_forget = 1;
-                else { ble_result = fm1_ble_forget_bonds(); ble_forget = ble_result ? 0 : 2; }
-            } else if ((flags & (GROOVE_RADIO_ON | GROOVE_RADIO_MIDI)) ==
-                (GROOVE_RADIO_ON | GROOVE_RADIO_MIDI) && role == FM1_BLE_CENTRAL) {
-                ble_view = 1; ble_action = ble->count ? 0 : 1; ble_forget = 0;
-                if (ble->state == FM1_BLE_IDLE) ble_result = fm1_ble_scan();
-            } else ble_result = -1;
-        }
-    } else {
-        unsigned count = ble->count > FM1_BLE_MAX_DEVICES ? FM1_BLE_MAX_DEVICES : ble->count;
-        ble_device = (unsigned)clamp((int)ble_device + controls->encoders[0], 0,
-                                     count ? (int)count - 1 : 0);
-        if (pressed & BUTTON(SAVE)) {
-            if (!ble_action) ble_result = fm1_ble_connect(ble_device);
-            else if (ble_action == 1) {
-                ble_result = fm1_ble_scan();
-                if (!ble_result) ble_device = 0;
-            } else if (ble_action == 2) ble_result = fm1_ble_disconnect();
-            else { ble_view = ble_action = ble_forget = 0; ble_result = 0; }
-        }
-    }
-}
 static __attribute__((noinline)) void tone_control(const struct fm1_controls *controls, uint32_t key_down)
 {
     if (page == TONE_EDIT && groove_source_type(track) == GROOVE_303)
@@ -2205,7 +2042,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
     }
     if ((controls->buttons & (BUTTON(HOME) | BUTTON(GLO))) == (BUTTON(HOME) | BUTTON(GLO)) &&
         (pressed & (BUTTON(HOME) | BUTTON(GLO)))) {
-        page = BLE; glo_down = glo_used = ble_view = ble_forget = ble_action = 0; ble_result = 0;
+        page = MAP_PAGE; glo_down = glo_used = 0;
         goto controls_done;
     }
     /* Keep the original HOME+PRESETS shortcut, including after HOME opens
@@ -2432,7 +2269,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
             else if (action == 17) {
                 if (groove_source_type(track) == GROOVE_DX7) { page = NAME; name_cursor = 0; }
                 else r = -1;
-            } else if (action == 18) { page = BLE; ble_view = ble_forget = ble_action = 0; ble_result = 0; }
+            } else if (action == 18) { page = MAP_PAGE; }
             else {
                 if (!post(0xff, 0, 0, 1)) return 0;
                 memset(key_note, 0xff, sizeof key_note); project_keys = 0; writing = 0; page = OVERVIEW;
@@ -2491,8 +2328,6 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                 groove_fm_name_edit(track, name_cursor,
                     edit_character((char)patch[145 + name_cursor], controls->encoders[2]));
         }
-    } else if (page == BLE) {
-        ble_control(controls, pressed, ble);
     } else if (page == MAP_PAGE) {
         map_control(controls, pressed);
     } else {
@@ -2953,10 +2788,9 @@ void smk37_screen_page(unsigned target)
     if(!release_keys())return;
     blocked_keys|=previous_keys;
     glo_down=glo_used=edit_down=seq_down=arp_down=arp_long=rec_down=0;
-    page=target==SMK37_PAGE_BLUETOOTH?BLE:target==SMK37_PAGE_MIDI?STEPS:
+    page=target==SMK37_PAGE_MIDI?STEPS:
         target==SMK37_PAGE_MAP?MAP_PAGE:SOURCE;
-    if(page==BLE) {ble_view=ble_forget=ble_action=0;ble_result=0;}
-    else if(page==STEPS) {music_page=STEPS;seq_page=5;}
+    if(page==STEPS) {music_page=STEPS;seq_page=5;}
     else if(page==MAP_PAGE) {}
     else {source_preview=groove_source_type(track);source_result=0;}
     boot_active=0;cache->shown_page=~0U;
@@ -2968,33 +2802,6 @@ unsigned smk37_screen_map_mode(void)
 }
 void smk37_screen_map_select(unsigned control)
 { if(control<SMK37_MAP_CONTROLS)map_row=control; }
-void smk37_map_feedback_set(unsigned control,unsigned target,unsigned assigned,int value)
-{
-    /* "K5 REVERB T3 60%"; one buffer, shown through the normal notice line. */
-    struct smk37_map_entry e; smk37_map_get(control,&e);
-    char name[4]; map_name(control,name);
-    strcpy(map_notice,name); strcat(map_notice," ");
-    strcat(map_notice,target==SMK37_MAP_CC?"CC":smk37_map_target_name(target));
-    unsigned n=(unsigned)strlen(map_notice);
-    if(target==SMK37_MAP_CC) {
-        decimal(map_notice+n,e.cc,1); strcat(map_notice," CH");
-        n=(unsigned)strlen(map_notice); decimal(map_notice+n,e.channel+1,1);
-    } else if(assigned<GROOVE_TRACKS) {
-        memcpy(map_notice+n," T",2); decimal(map_notice+n+2,(int)assigned+1,1);
-    }
-    if(value<0 && assigned<GROOVE_TRACKS) {
-        if(target==SMK37_MAP_LEVEL) {struct groove_view v;groove_get_view(assigned,0,&v);value=v.volume;}
-        else if(target==SMK37_MAP_REVERB || target==SMK37_MAP_DELAY) {
-            uint8_t sends[2];groove_sends_get(assigned,sends);
-            value=(int)((sends[target==SMK37_MAP_DELAY]*100U+7U)/15U);
-        }
-    }
-    if(value>=0) {
-        n=(unsigned)strlen(map_notice);map_notice[n]=' ';decimal(map_notice+n+1,value,1);
-        if(target==SMK37_MAP_REVERB || target==SMK37_MAP_DELAY)strcat(map_notice,"%");
-    }
-    announce(map_notice,fm1_millis()+1200U);
-}
 void smk37_screen_shortcut(unsigned pad)
 {
     if(pad<8) {
@@ -3028,7 +2835,7 @@ unsigned groove_screen_preset_position(void)
 /* Web shortcuts enter the same editor and use the same parameter handlers. */
 int groove_screen_open(unsigned target)
 {
-    if (target > ARP_EDIT || target == PROJECT) return -1;
+    if (target > ARP_EDIT || target == PROJECT || target == BLE) return -1;
     boot_active = 0;
     unsigned quick = target == FM_QUICK;
     if (quick && groove_source_type(track) != GROOVE_DX7) target = TONE_EDIT;
