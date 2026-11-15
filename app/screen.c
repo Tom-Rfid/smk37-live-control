@@ -1174,13 +1174,13 @@ static __attribute__((noinline)) void project_draw(void)
         cache->row_cache[0] = sig;
         erase(8, 126, 224, 26);
         plain_text(8, 126, project_reload ? "OVERWRITE SELECTED SLOT?" : "> WRITE PROJECT");
-        dim_text(8, 145, project_reload ? "> CONFIRM  <|PATCH CANCEL" : "K1 CURSOR  K2 LETTER");
+        dim_text(8, 145, project_reload ? "> CONFIRM  </PATCH CANCEL" : "K1 CURSOR  K2 LETTER");
     }
     if (cache->hint_cache != 1U) {
         cache->hint_cache = 1U;
         dim_text(8, 59, "WORKING NAME");
         dim_text(8, 105, "K5 / K7 CHOOSE SLOT");
-        dim_text(8, 224, "<|PATCH CANCEL  PARA SOUND");
+        dim_text(8, 224, "</PATCH CANCEL  PARA SOUND");
     }
     sig = (unsigned)(project_result + 16) | (project_operation << 16);
     if (cache->row_cache[1] == sig) return;
@@ -1215,7 +1215,7 @@ static __attribute__((noinline)) void preset_draw(void)
     dim_text(8, 170, "PADS 1-16 LOAD DIRECTLY");
     dim_text(8, 191, "K1 BANK: USER / FACTORY");
     color_text(8, 213, project_result == GROOVE_PROJECT_EMPTY ? "EMPTY SLOT - CHOOSE ANOTHER" :
-         project_result ? "LOAD FAILED - CURRENT KEPT" : "<|PATCH BACK  <|PATCH+> UNDO", project_result ? AMBER : DIM);
+         project_result ? "LOAD FAILED - CURRENT KEPT" : "</PATCH BACK  </PATCH+> UNDO", project_result ? AMBER : DIM);
 }
 static __attribute__((noinline)) void name_draw(void)
 {
@@ -1393,7 +1393,7 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         static const char *const hints[] = {"PROJECT: FOLLOWS PROJECT", "LIVE: KEEP SOUND ON PROJECT LOAD", "OFF: TURN K2 LEFT TO ENABLE"};
         dim_text(8, 198, source_preview == groove_source_type(track) ? hints[role] : "DRUM / PITCH CHANGE CLEARS STEPS");
         color_text(8, 216, source_result ? "NOT ENOUGH MEMORY - RETRY" : "K1 / PADS 1-6 CHOOSE", source_result ? AMBER : TEXT);
-        dim_text(8, 231, role == GROOVE_TRACK_OFF ? "K2 ENABLE TRACK  <|PATCH BACK" : "> APPLY SOUND  <|PATCH BACK");
+        dim_text(8, 231, role == GROOVE_TRACK_OFF ? "K2 ENABLE TRACK  </PATCH BACK" : "> APPLY SOUND  </PATCH BACK");
     } else if (visible == ACTIONS) {
         if (action_confirm) color_text(8, 38, "REPLACE PATTERN DATA?", AMBER);
         else {
@@ -1411,7 +1411,7 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
             text(10, y + 5, actions[at], 1, at == action ? ACCENT : DIM, bg);
         }
         plain_text(8, 213, notice ? notice : "K1 / K5 ACTION  > EXECUTE");
-        dim_text(8, 231, action_confirm ? "> CONFIRM   <|PATCH CANCEL" : "K7 STEP  OCT PAGE  > DO");
+        dim_text(8, 231, action_confirm ? "> CONFIRM   </PATCH CANCEL" : "K7 STEP  OCT PAGE  > DO");
     } else if (visible == ARP_EDIT) {
         text(8, 40, "ARPEGGIATOR", 2, ACCENT, BACK);
         text(184, 40, "T", 2, colors[track], BACK);
@@ -1534,7 +1534,7 @@ static __attribute__((noinline, cold, minsize)) void draw_page_body(const struct
         edit_page_draw(visible);
         if (visible == FM_QUICK || visible == ARP_EDIT)
             hint_draw(state_hint ? state_hint : visible == FM_QUICK
-                ? "PARA BACK  HOLD PARA MORE" : "ARP ON/OFF   <|PATCH BACK");
+                ? "PARA BACK  HOLD PARA MORE" : "ARP ON/OFF   </PATCH BACK");
         return;
     }
     if (visible == EFFECTS) {
@@ -1544,7 +1544,7 @@ static __attribute__((noinline, cold, minsize)) void draw_page_body(const struct
     }
     if (visible == FM_LFO && v->type != GROOVE_DX7) {
         track_lfo_draw();
-        hint_draw(state_hint ? state_hint : "KNOB BANK+CHORD BACK  <|PATCH TRACKS");
+        hint_draw(state_hint ? state_hint : "KNOB BANK+CHORD BACK  </PATCH TRACKS");
         return;
     }
     const uint8_t *patch = frame_patch;
@@ -1703,13 +1703,13 @@ static __attribute__((noinline, cold, minsize)) void draw_page_body(const struct
                            ? "K7 SOURCE  PARA PARAMETERS"
                        : visible == OVERVIEW ? routing
                        : visible == STEPS    ? "K7 STEP  OCT PAGE  HOLD SEQ MORE"
-                       : visible == MIX      ? "PADS MUTE/SOLO  GLOBE/<|PATCH BACK"
+                       : visible == MIX      ? "PADS MUTE/SOLO  GLOBE/</PATCH BACK"
                        : visible == FM_EDIT  ? "PADS OP  K5 PAGE  PARA BACK"
                        : visible == FM_ENV && v->type != GROOVE_DX7 ? "CHORD BACK  K5 TRACK"
-                       : visible == FM_ENV   ? "K7 ENV ON/OFF  <|PATCH TRACKS"
+                       : visible == FM_ENV   ? "K7 ENV ON/OFF  </PATCH TRACKS"
                        : visible == TONE_EDIT && !advanced_edit
                            ? "HOLD PARA MORE  K5 TRACK"
-                           : "K5 PAGE  <|PATCH TRACKS";
+                           : "K5 PAGE  </PATCH TRACKS";
     hint_draw(hint);
 }
 static void draw_page(const struct fm1_ble_status *ble)
@@ -1986,7 +1986,7 @@ static void select_track(int delta)
 void groove_screen_tap(uint32_t now)
 {
     int bpm = groove_tempo_tap(now);
-    announce(bpm < 0 ? "TAP: EXTERNAL MIDI CLOCK" : bpm ? "TAP TEMPO APPLIED" : "TAP AGAIN / <|PATCH+SEQ", now + 1500U);
+    announce(bpm < 0 ? "TAP: EXTERNAL MIDI CLOCK" : bpm ? "TAP TEMPO APPLIED" : "TAP AGAIN / </PATCH+SEQ", now + 1500U);
 }
 /* Keep modal editors out of the common key/transport control frame. */
 static __attribute__((noinline)) void tone_control(const struct fm1_controls *controls, uint32_t key_down)

@@ -15,7 +15,7 @@ roles stay untouched everywhere else.
   need for menu navigation (K1-K4 are used by most menus).
 - In editing, **`<`** or **BT** returns to LIVE. On LIVE, **BT** exits.
   **PATCH** keeps its HOME role on both pages: it leaves to the track overview.
-- On-screen hints name the physical buttons: `<|PATCH` (HOME), `>` (SAVE),
+- On-screen hints name the physical buttons: `</PATCH` (HOME), `>` (SAVE),
   KNOB BANK (SHIFT), PARA (EDIT), CHORD (ENV), GLOBE (MIX), NOTE REPEAT
   (PAD/STEP), K5 (SELECT), K6 (PAGE), K7 (PRESETS).
 - SOURCE page (KNOB BANK+PATCH): turning K2 (track mode) returns to the
