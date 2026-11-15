@@ -1100,10 +1100,13 @@ static __attribute__((noinline, minsize)) void draw_live(void)
         paint_fill(0, 40, 240, 84, GREY);
         if (last >= SMK37_MAP_CONTROLS) text(8, 60, "MOVE A CONTROL", 1, AMBER, GREY);
         else {
-            map_label(last, label, smk37_map_get(last)->target != 0);
-            text(8, 42, label, 2, AMBER, GREY);
+            const struct smk37_map_entry *le = smk37_map_get(last);
+            unsigned lt = le->track ? le->track - 1U : track;
+            uint16_t lc = le->target ? colors[lt] : AMBER; /* track colour, as in OVERVIEW */
+            map_label(last, label, le->target != 0);
+            text(8, 42, label, 2, lc, GREY);
             text(8, 66, value, lfo_shape < 6 ? 2 : 4, AMBER, GREY);
-            text(8, 98, live_name, 2, TEXT, GREY);
+            text(8, 98, live_name, 2, lc, GREY);
             if (lfo_shape < 6) {
                 /* LFO preview: 1-6 cycles from RATE, height from DEPTH, current shape. */
                 unsigned cycles = 1U + (lfo_rate * 13U >> 8), amp = 5U + (lfo_depth * 26U >> 8), sh = lfo_shape;

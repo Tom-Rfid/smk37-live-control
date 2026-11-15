@@ -25,9 +25,17 @@ static void row(unsigned r){ smk37_screen_map_select(r); wait(30); }
 unsigned groove_screen_web_context(void);
 int smk37_performance_octave(unsigned pad);
 static unsigned mode(void){ return smk37_screen_map_mode(); }
+void smk37_map_clear(unsigned);
 int main(void){
   sim_boot(1); wait(300);
   for(unsigned i=0;i<4;++i) fader(i,0);
+  /* ---- Factory default layout ---- */
+  CHECK(smk37_map_get(0)->target==SMK37_MAP_KEYS && smk37_map_get(1)->target==SMK37_MAP_SOUND
+     && smk37_map_get(3)->target==SMK37_MAP_DLY_TIME && smk37_map_get(7)->target==SMK37_MAP_FX_RETURN
+     && smk37_map_get(10)->target==SMK37_MAP_DEFAULT && smk37_map_get(11)->target==SMK37_MAP_LEVEL,
+     "factory default LIVE layout loaded");
+  button(BT,100); knob(1,1); knob(1,-1); shot("00_live_default"); button(BT,100); /* show the default layout */
+  for(unsigned i=0;i<12;++i) smk37_map_clear(i); /* clean slate for the assignment tests below */
   /* ---- Navigation ---- */
   button(BT,100);  CHECK(mode()==1,"BT click opens LIVE");
   shot("01_live_empty");

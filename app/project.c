@@ -162,7 +162,7 @@ static int read_project(unsigned sector)
 enum { TUNING_MAGIC = 0x54314d46U, TUNING_VERSION = 2, SAMPLE_BANK_MAGIC = 0x53314d46U };
 struct tuning_entry { uint32_t key; struct groove_tuning t[GROOVE_TRACKS]; uint32_t crc; };
 /* Optional tail leaves every existing tuning entry at its original offset. */
-enum { SESSION_MAGIC = 0x31534d46U, PANEL_MAGIC = 0x31504b53U, MAP_MAGIC = 0x324d4b53U };
+enum { SESSION_MAGIC = 0x31534d46U, PANEL_MAGIC = 0x31504b53U, MAP_MAGIC = 0x334d4b53U };
 struct session_settings { uint32_t magic; uint8_t role[8], channel[8]; uint32_t crc; };
 struct panel_settings { uint32_t magic; uint8_t data[4]; uint32_t crc; };
 /* SMK37 knob/fader assignments (12 controls x 4 bytes) and LIVE SETUP (4). */

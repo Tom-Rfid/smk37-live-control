@@ -1,3 +1,5 @@
+
+**Default LIVE layout** (loaded fresh after this update; it replaces any map saved by an earlier build, and resets LIVE SETUP): K1 KEYS TRK, K2 SOUND (SEL), K3 DELAY, K4 DLY TIME, K5 LFO WAVE (SEL), K6 LFO RATE, K7 LFO DEPTH, K8 FX RETURN, F1 REVERB (SEL), F2 REV TIME, F3 default, F4 LEVEL (keyboard volume). On LIVE the readout label and the sound name take the track's colour, as in the overview.
 # LIVE control page (BT)
 
 Assignments play **only on the BT page**, so the firmware's own knob and fader

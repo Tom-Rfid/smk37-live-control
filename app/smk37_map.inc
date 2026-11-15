@@ -1,7 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception
  * Knob/fader assignments (MAP page) and LIVE SETUP. Included by
  * smk37_controls.c only, after its own code. */
-static struct smk37_map_entry map[SMK37_MAP_CONTROLS];
+/* Factory default LIVE layout (track 0 = SEL). Bump MAP_MAGIC in project.c
+ * whenever this changes, so a saved map does not hide the new default. */
+static struct smk37_map_entry map[SMK37_MAP_CONTROLS] = {
+    {.target=SMK37_MAP_KEYS}, {.target=SMK37_MAP_SOUND}, {.target=SMK37_MAP_DELAY}, {.target=SMK37_MAP_DLY_TIME},
+    {.target=SMK37_MAP_LFO_WAVE}, {.target=SMK37_MAP_LFO_RATE}, {.target=SMK37_MAP_LFO_DEPTH}, {.target=SMK37_MAP_FX_RETURN},
+    {.target=SMK37_MAP_REVERB}, {.target=SMK37_MAP_REV_TIME}, {.target=SMK37_MAP_DEFAULT}, {.target=SMK37_MAP_LEVEL},
+};
 uint8_t smk37_setup[4];
 static uint8_t map_fader_last[SMK37_MAP_FADERS], map_fader_seen, map_cc[SMK37_MAP_CONTROLS];
 uint8_t smk37_map_last = 255;
