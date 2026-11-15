@@ -20,7 +20,12 @@ static uint16_t wheel_channels[2];
 static uint8_t wheel_value[2] = {64,0};
 static uint8_t wheel_last_channel[2];
 /* BT button: opens the CONTROL MAP page (the Bluetooth page was removed). */
-enum { BT_BUTTON = 11 };
+/* BT: a click opens the LIVE page (assignments play only there); on LIVE,
+ * a 2 s hold opens editing and a click exits; in editing a click returns. */
+enum { BT_BUTTON = 11, BT_HOLD_MS = 2000 };
+static uint8_t bt_down, bt_used;
+static uint32_t bt_ms;
+uint32_t smk37_bt_hold_since(void) { return bt_down && !bt_used ? bt_ms | 1U : 0; }
 static unsigned map_velocity(unsigned v); /* smk37_map.inc */
 
 /* FM1 button IDs remain the common application's interface. Physical IDs
@@ -84,7 +89,7 @@ void smk37_controls_panic(void)
     /* Queue loss can discard button-up and encoder events as well as notes. */
     physical_buttons=shifted_buttons=panel.buttons=shortcut_pads=0;
     memset(panel.encoders,0,sizeof panel.encoders);
-    pedal_down=0;
+    pedal_down=0;bt_down=0;
     wheel_value[0]=64;wheel_value[1]=0;
 }
 
@@ -162,8 +167,8 @@ static void fader(unsigned id,unsigned value)
     if(learn && (fader_valid&(1U<<id)) && value!=faders[id])smk37_screen_map_select(SMK37_MAP_KNOBS+id);
     if(smk37_map_fader(id,value) || learn) {faders[id]=value;fader_valid|=1U<<id;return;}
     const struct smk37_map_entry *assigned=smk37_map_get(SMK37_MAP_KNOBS+id);
-    unsigned track=assigned->target!=SMK37_MAP_LEVEL?4*bank+id:
-        assigned->track?assigned->track-1U:smk37_screen_track()%GROOVE_TRACKS;
+    unsigned live=assigned->target==SMK37_MAP_LEVEL && smk37_screen_map_mode()==1;
+    unsigned track=!live?4*bank+id:assigned->track?assigned->track-1U:smk37_screen_track()%GROOVE_TRACKS;
     struct groove_view view;groove_get_view(track,0,&view);
     unsigned target=view.volume, previous=faders[id];
     unsigned moved=(fader_valid&(1U<<id)) && value!=previous;
@@ -185,6 +190,7 @@ static void fader(unsigned id,unsigned value)
         }
         groove_midi_fader(track,value);
     }
+    if(moved && live) {smk37_map_last=(uint8_t)(SMK37_MAP_KNOBS+id);++smk37_map_moves;}
     if(moved) {
         /* A generation byte preserves repeated motion between UI polls.
          * Initial ADC samples establish pickup silently. */
@@ -287,6 +293,7 @@ void smk37_control_event(unsigned kind,unsigned id,int value)
         if(!!was==!!value)return;
         if(value)physical_buttons|=bit;else physical_buttons&=~bit;
         if(!value)shifted_buttons&=~bit;
+        if(!value && id==BT_BUTTON && bt_down) {bt_down=0;if(!bt_used)smk37_screen_map_click();}
         if(value) {
             if(physical_buttons&1U)shifted_buttons|=bit&((1U<<9)|(1U<<12)|(1U<<15));
             if(id==1) {bank^=1;pickup=15;}
@@ -298,7 +305,11 @@ void smk37_control_event(unsigned kind,unsigned id,int value)
                 memset(pad_navigation,255,sizeof pad_navigation);panel.keys=0;
                 smk37_screen_pad_mode(step_pads,instrument);
             }
-            else if(id==BT_BUTTON)smk37_screen_page(SMK37_PAGE_MAP);
+            else if(id==BT_BUTTON) {
+                bt_down=1;bt_ms=fm1_millis();
+                bt_used=!smk37_screen_map_mode();
+                if(bt_used)smk37_screen_page(SMK37_PAGE_MAP);
+            }
             else if(id==12 && (physical_buttons&1U))smk37_screen_page(SMK37_PAGE_SOURCE);
             else if(id==15 && (physical_buttons&1U))smk37_screen_page(SMK37_PAGE_MIDI);
         }
@@ -317,6 +328,9 @@ void smk37_control_event(unsigned kind,unsigned id,int value)
 void smk37_controls_snapshot(struct fm1_controls *out)
 {
     groove_midi_poll();
+    if(bt_down && !bt_used && smk37_screen_map_mode()==1 && fm1_millis()-bt_ms>=BT_HOLD_MS) {
+        bt_used=1;smk37_screen_map_edit();
+    }
     *out=panel;memset(panel.encoders,0,sizeof panel.encoders);
 }
 unsigned smk37_fader_bank(void) {return bank;}

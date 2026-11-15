@@ -199,7 +199,7 @@ static uint32_t project_keys; /* Held Play pitches across a project remapping. *
 static uint32_t encoder_time[7];
 static int8_t encoder_direction[7];
 static uint8_t encoder_speed[7];
-static unsigned map_row, map_page, setup_row;
+static unsigned map_row, map_page, setup_row, map_edit;
 static unsigned glo_down, glo_used, ble_device, ble_was_linked, ble_view, ble_action;
 static int ble_result, source_result;
 static unsigned ble_forget, ble_stage, ble_seconds;
@@ -991,17 +991,110 @@ static volatile uint8_t keep_ble_host;
  * ">K5 REVERB T3", " F2 MIDI CC 074/02". 2/2 LIVE SETUP: velocity curve,
  * fader mode, knob speed. BT or OCT-/OCT+ change page. Kept small: the app
  * image has little free Flash. */
+enum { GREY = 0x39e7 };
+/* "K5 REVERB", then with detail " T3" / " SEL" / " 074/02" (CC/channel). */
+static __attribute__((noinline)) void map_label(unsigned i, char *p, unsigned detail)
+{
+    const struct smk37_map_entry *e = smk37_map_get(i);
+    *p++ = i < SMK37_MAP_KNOBS ? 'K' : 'F'; *p++ = (char)('1' + i % SMK37_MAP_KNOBS); *p++ = ' ';
+    strcpy(p, e->target || detail ? smk37_map_target_names[e->target] : "-"); p += strlen(p);
+    if (!detail || !e->target) return;
+    if (e->target == SMK37_MAP_CC) {
+        unsigned ch = e->channel + 1U;
+        p[0] = ' '; p[1] = (char)('0' + e->cc / 100); p[2] = (char)('0' + e->cc / 10 % 10);
+        p[3] = (char)('0' + e->cc % 10); p[4] = '/'; p[5] = (char)('0' + ch / 10); p[6] = (char)('0' + ch % 10); p[7] = 0;
+    } else if (e->target > SMK37_MAP_FM_FEEDBACK) return;
+    else if (!e->track) strcpy(p, " SEL");
+    else { p[0] = ' '; p[1] = 'T'; p[2] = (char)('0' + e->track); p[3] = 0; }
+}
+/* LIVE readout of one assignment: value text and 0..100 bar (255: none). */
+static void map_value(unsigned control, char out[16], unsigned *bar)
+{
+    const struct smk37_map_entry *e = smk37_map_get(control);
+    unsigned target = e->target, t = e->track ? e->track - 1U : track;
+    int value = -1, max = 0;
+    *bar = 255; out[0] = 0;
+    struct groove_view v; groove_get_view(t, 0, &v);
+    if (target == SMK37_MAP_LEVEL) { value = v.volume; max = 127; }
+    else if (target == SMK37_MAP_REVERB || target == SMK37_MAP_DELAY) {
+        uint8_t sends[2]; groove_sends_get(t, sends);
+        value = (sends[target == SMK37_MAP_DELAY] * 100 + 7) / 15; max = 100;
+    } else if (target >= SMK37_MAP_LFO_RATE && target <= SMK37_MAP_FM_FEEDBACK) {
+        unsigned k = target - SMK37_MAP_LFO_RATE, dx7 = groove_source_type(t) == GROOVE_DX7;
+        uint8_t lfo[4];
+        if (dx7) { groove_fm_copy(t, frame_patch, NULL);
+            static const uint8_t at[4] = {137, 139, 142, 135}; value = frame_patch[at[k]]; max = k == 3 ? 7 : 99; }
+        else if (k < 3) { groove_lfo_copy(t, lfo); value = lfo[k == 2 ? 3 : k]; max = 100; }
+        if (k == 2 && value >= 0) {
+            static const char *const dx7w[] = {"TRI", "SAW DN", "SAW UP", "SQUARE", "SINE", "S&H"};
+            static const char *const lfow[] = {"TRI", "SQUARE", "SAW UP", "SAW DN"};
+            strcpy(out, dx7 ? dx7w[value % 6] : lfow[value % 4]); return;
+        }
+    } else if (target >= SMK37_MAP_REV_TIME && target <= SMK37_MAP_FX_RETURN) {
+        uint8_t fx[4]; groove_effects_get(fx); value = fx[target - SMK37_MAP_REV_TIME];
+    } else if (target == SMK37_MAP_TEMPO) value = v.tempo;
+    else if (target == SMK37_MAP_CC) { value = (int)smk37_map_cc_value(control); max = 127; }
+    if (value < 0) { strcpy(out, target == SMK37_MAP_CUTOFF ? "MOVED" : "--"); return; }
+    decimal(out, value, 1);
+    if (max) *bar = (unsigned)(value * 100 / max);
+}
+static __attribute__((noinline)) void draw_live(void)
+{
+    if (cache->title_cache != 9) {
+        cache->title_cache = 9;
+        memset(cache->tile_cache, 0xff, sizeof cache->tile_cache);
+        memset(cache->cell_cache, 0xff, sizeof cache->cell_cache);
+        paint_fill(0, 0, 240, 240, GREY);
+        text(8, 8, "LIVE CONTROL", 2, AMBER, GREY);
+        text(8, 213, "< OR HOLD BT 2S: EDIT", 1, AMBER, GREY);
+        text(8, 229, "BT: EXIT", 1, AMBER, GREY);
+    }
+    /* Green progress bar while BT is held towards editing. */
+    uint32_t since = smk37_bt_hold_since();
+    unsigned width = since ? (unsigned)clamp((int)(frame_time - since), 0, 2000) * 224U / 2000U : 0;
+    if (cache->hold_cache != width) {
+        cache->hold_cache = width;
+        paint_fill(8, 30, 224, 3, GREY);
+        if (width) paint_fill(8, 30, width, 3, GREEN);
+    }
+    char line[32], value[16];
+    unsigned last = smk37_map_last, bar = 255;
+    if (last < SMK37_MAP_CONTROLS) map_value(last, value, &bar); else strcpy(value, "");
+    uint32_t sig = signature(last * 977U + bar, value, (unsigned)strlen(value));
+    if (cache->cell_cache[1][0] != sig) {
+        cache->cell_cache[1][0] = sig;
+        paint_fill(0, 40, 240, 72, GREY);
+        if (last >= SMK37_MAP_CONTROLS) text(8, 60, "TURN A KNOB / FADER", 1, AMBER, GREY);
+        else {
+            map_label(last, line, 1);
+            text(8, 42, line, 2, AMBER, GREY);
+            text(8, 66, value, 4, AMBER, GREY);
+            if (bar <= 100) { paint_fill(8, 102, 224, 6, PANEL); paint_fill(8, 102, bar * 224U / 100U, 6, AMBER); }
+        }
+    }
+    for (unsigned i = 0; i < SMK37_MAP_CONTROLS; ++i) {
+        const struct smk37_map_entry *e = smk37_map_get(i);
+        uint32_t row = signature(i == last, e, sizeof *e);
+        if (cache->tile_cache[i] == row) continue;
+        cache->tile_cache[i] = row;
+        map_label(i, line, 0);
+        unsigned x = i < 6 ? 8 : 124, y = 120 + (i % 6) * 14;
+        paint_fill(x, y, 112, 10, GREY);
+        text(x, y + 1, line, 1, i == last ? TEXT : AMBER, GREY);
+    }
+}
 static __attribute__((noinline)) void draw_map(void)
 {
     if (cache->title_cache != 1U + map_page) {
+        cache->hold_cache = ~0U;
         cache->title_cache = 1U + map_page;
         memset(cache->tile_cache, 0xff, sizeof cache->tile_cache);
         erase(0, 0, 240, 240);
         text(8, 8, map_page ? "LIVE SETUP 2/2" : "CONTROL MAP 1/2", 2, ACCENT, BACK);
         dim_text(8, 213, map_page ? "K1 ROW  K2 VALUE" : "K1 ROW  K2 TYPE  K3 TRK/CC  K4 CH");
-        dim_text(8, 229, "SAVE DEFAULT  BT/OCT PAGE  HOME EXIT");
+        dim_text(8, 229, "> DEFAULT  OCT PAGE  < OR BT: LIVE");
     }
-    char line[32], *p;
+    char line[32];
     if (map_page) {
         static const char *const rows[SMK37_SETUP_ROWS] = {"VELOCITY   ", "FADERS     ", "KNOB SPEED "};
         static const char *const values[] = {"NORMAL", "SOFT", "HARD", "FIXED 100", "PICKUP", "JUMP", "X1", "X2", "X4"};
@@ -1015,17 +1108,7 @@ static __attribute__((noinline)) void draw_map(void)
     }
     for (unsigned i = 0; i < SMK37_MAP_CONTROLS; ++i) {
         const struct smk37_map_entry *e = smk37_map_get(i);
-        p = line;
-        *p++ = i == map_row ? '>' : ' '; *p++ = i < SMK37_MAP_KNOBS ? 'K' : 'F';
-        *p++ = (char)('1' + i % SMK37_MAP_KNOBS); *p++ = ' ';
-        strcpy(p, smk37_map_target_names[e->target]); p += strlen(p);
-        if (e->target == SMK37_MAP_CC) {
-            unsigned ch = e->channel + 1U;
-            p[0] = ' '; p[1] = (char)('0' + e->cc / 100); p[2] = (char)('0' + e->cc / 10 % 10);
-            p[3] = (char)('0' + e->cc % 10); p[4] = '/'; p[5] = (char)('0' + ch / 10); p[6] = (char)('0' + ch % 10); p[7] = 0;
-        } else if (!e->target || e->target > SMK37_MAP_FM_FEEDBACK) *p = 0;
-        else if (!e->track) strcpy(p, " SEL");
-        else { p[0] = ' '; p[1] = 'T'; p[2] = (char)('0' + e->track); p[3] = 0; }
+        line[0] = i == map_row ? '>' : ' '; map_label(i, line + 1, 1);
         radio_line(i, 40 + i * 14, line, i == map_row ? ACCENT : e->target ? TEXT : DIM);
     }
 }
@@ -1036,6 +1119,7 @@ static __attribute__((noinline)) void map_control(const struct fm1_controls *con
         (void)fm1_ble_scan(); (void)fm1_ble_connect(0); (void)fm1_ble_disconnect();
         (void)fm1_ble_get_device(0, &device); fm1_bluetooth_get_status(&radio);
     }
+    if (!map_edit) return;
     if (pressed & (BUTTON(OCT_DOWN) | BUTTON(OCT_UP))) { map_page ^= 1U; return; }
     int rows = controls->encoders[2] + controls->encoders[6];
     if (map_page) {
@@ -1427,7 +1511,7 @@ static __attribute__((noinline, cold, minsize)) void draw_page_body(const struct
         return;
     }
     if (visible == MAP_PAGE) {
-        draw_map();
+        if (!map_edit) draw_live(); else draw_map();
         return;
     }
     header(v);
@@ -1625,7 +1709,7 @@ static void draw_page(const struct fm1_ble_status *ble)
         text(8, 220, "ENV LFO  HOME SOURCE  SEQ MIDI", 1, TEXT, PANEL);
         text(8, 231, "PAD/STEP STEP EDIT  RELEASE TO RETURN", 1, DIM, PANEL);
     }
-    if (boot_active || (paint_rendering && paint_top >= 30)) return;
+    if (boot_active || page == MAP_PAGE || (paint_rendering && paint_top >= 30)) return;
     uint32_t since = 0;
     unsigned active = 1;
     if (glo_down && !glo_used) since = glo_ms;
@@ -2064,7 +2148,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
     }
     if ((controls->buttons & (BUTTON(HOME) | BUTTON(GLO))) == (BUTTON(HOME) | BUTTON(GLO)) &&
         (pressed & (BUTTON(HOME) | BUTTON(GLO)))) {
-        page = MAP_PAGE; map_page = 0; glo_down = glo_used = 0;
+        page = MAP_PAGE; map_page = map_edit = 0; glo_down = glo_used = 0;
         goto controls_done;
     }
     /* Keep the original HOME+PRESETS shortcut, including after HOME opens
@@ -2098,6 +2182,10 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         glo_down = 0;
         blocked_keys |= controls->keys;
         if (tapped) page = page == MIX ? music_page : MIX;
+    }
+    if (page == MAP_PAGE && (pressed & BUTTON(HOME))) {
+        map_edit ^= 1U; map_page = 0; cache->shown_page = ~0U;
+        goto controls_done;
     }
     if (pressed & (BUTTON(HOME) | BUTTON(SEQ) | BUTTON(FX) | BUTTON(SCL) |
                    BUTTON(EDIT) | BUTTON(ENV) | BUTTON(LFO))) {
@@ -2281,8 +2369,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
             else if (action == 14) r = groove_edit_undo();
             else if (action == 15) { r = groove_timbre_export(track, (uint8_t *)&tone_clip, sizeof tone_clip); tone_clip_ready = !r; }
             else if (action == 16) r = tone_clip_ready ? groove_timbre_import(track, (uint8_t *)&tone_clip, sizeof tone_clip) : -1;
-            else if (action == 17) { page = MAP_PAGE; map_page = 0; }
-            else if (action == 18) { page = MAP_PAGE; map_page = 1; }
+            else if (action == 17 || action == 18) { page = MAP_PAGE; map_edit = 1; map_page = action == 18; }
             else {
                 if (!post(0xff, 0, 0, 1)) return 0;
                 memset(key_note, 0xff, sizeof key_note); project_keys = 0; writing = 0; page = OVERVIEW;
@@ -2793,7 +2880,7 @@ void smk37_screen_page(unsigned target)
     if(!release_keys())return;
     blocked_keys|=previous_keys;
     glo_down=glo_used=edit_down=seq_down=arp_down=arp_long=rec_down=0;
-    if(target==SMK37_PAGE_MAP) {map_page=page==MAP_PAGE?!map_page:0;}
+    if(target==SMK37_PAGE_MAP) map_page=map_edit=0;
     page=target==SMK37_PAGE_MIDI?STEPS:
         target==SMK37_PAGE_MAP?MAP_PAGE:SOURCE;
     if(page==STEPS) {music_page=STEPS;seq_page=5;}
@@ -2802,10 +2889,15 @@ void smk37_screen_page(unsigned target)
     boot_active=0;cache->shown_page=~0U;
 }
 unsigned smk37_screen_map_mode(void)
+{ return page==MAP_PAGE ? 1U+map_edit : 0U; }
+void smk37_screen_map_click(void)
 {
-    if(page==MAP_PAGE)return 2;
-    return !boot_active && !glo_down && (page==OVERVIEW || page==MIX);
+    if(page!=MAP_PAGE)return;
+    if(map_edit) map_edit=0; else page=music_page;
+    cache->shown_page=~0U;
 }
+void smk37_screen_map_edit(void)
+{ if(page==MAP_PAGE) {map_edit=1;map_page=0;cache->shown_page=~0U;} }
 void smk37_screen_map_select(unsigned control)
 { if(control<SMK37_MAP_CONTROLS)map_row=control; }
 void smk37_screen_shortcut(unsigned pad)

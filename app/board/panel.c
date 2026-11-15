@@ -48,7 +48,7 @@ void smk37_rgb_set(unsigned id,unsigned rgb)
 {
     if(rgb_colors[id]!=rgb){rgb_colors[id]=rgb;rgb_dirty|=1U<<id;}
 }
-void smk37_rgb_service(void)
+__attribute__((minsize)) void smk37_rgb_service(void)
 {
     if(!rgb_dirty || fm1_screen_pending())return;
     static const uint32_t nibble[16]={

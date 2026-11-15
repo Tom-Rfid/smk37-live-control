@@ -32,9 +32,13 @@ int smk37_screen_pad(unsigned pad, unsigned velocity, unsigned steps);
 unsigned smk37_screen_pad_key(unsigned pad);
 enum { SMK37_PAGE_BLUETOOTH, SMK37_PAGE_SOURCE, SMK37_PAGE_MIDI, SMK37_PAGE_MAP };
 void smk37_screen_page(unsigned page);
-/* 0: knob assignments bypassed (editor pages), 1: assignments active
- * (performance pages), 2: the MAP page is open. */
+/* 0: not on the BT page, 1: LIVE (assignments play), 2: editing them. */
 unsigned smk37_screen_map_mode(void);
+void smk37_screen_map_click(void);   /* BT click on the BT page */
+void smk37_screen_map_edit(void);    /* BT held 2 s on LIVE */
+uint32_t smk37_bt_hold_since(void);  /* nonzero while a BT hold may open editing */
+extern uint8_t smk37_map_last;       /* control last moved on LIVE */
+extern uint16_t smk37_map_moves;
 /* MAP page: select a control row (fader learn). */
 void smk37_screen_map_select(unsigned control);
 void smk37_screen_shortcut(unsigned pad);

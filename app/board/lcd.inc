@@ -32,7 +32,8 @@ static int display_valid(unsigned x,unsigned y,unsigned w,unsigned h,const void 
     return pixels&&w&&h&&x<240&&y<240&&w<=240-x&&h<=240-y&&count>=w*h;
 }
 static uint16_t display_swap(uint16_t value) {return (uint16_t)((value>>8)|(value<<8));}
-void fm1_screen_fill(unsigned x,unsigned y,unsigned w,unsigned h,uint16_t color)
+/* SMK37 MAP: minsize keeps the app image inside its Flash area; SPI-bound. */
+__attribute__((minsize)) void fm1_screen_fill(unsigned x,unsigned y,unsigned w,unsigned h,uint16_t color)
 {
     if(!w||!h||x>=240||y>=240)return;
     if(w>240-x)w=240-x;if(h>240-y)h=240-y;
@@ -42,7 +43,8 @@ void fm1_screen_fill(unsigned x,unsigned y,unsigned w,unsigned h,uint16_t color)
     display_window(x,y,w,h);
     while(pixels) {unsigned n=pixels<batch?pixels:batch;display_data(display_row,2*n);pixels-=n;}
 }
-int fm1_screen_blit(unsigned x,unsigned y,unsigned w,unsigned h,const uint16_t *pixels,size_t count)
+/* SMK37 MAP: minsize keeps the app image inside its Flash area; SPI-bound. */
+__attribute__((minsize)) int fm1_screen_blit(unsigned x,unsigned y,unsigned w,unsigned h,const uint16_t *pixels,size_t count)
 {
     if(!display_valid(x,y,w,h,pixels,count))return -1;
     display_finish();uint32_t errors=fm1_lcd_timeouts;
@@ -55,14 +57,16 @@ int fm1_screen_blit(unsigned x,unsigned y,unsigned w,unsigned h,const uint16_t *
     }
     return errors==fm1_lcd_timeouts?0:-2;
 }
-int fm1_screen_pending(void)
+/* SMK37 MAP: minsize keeps the app image inside its Flash area; SPI-bound. */
+__attribute__((minsize)) int fm1_screen_pending(void)
 {
     if(!display_pending)return 0;
     if(fm1_lcd_ready()) {display_finish();return 0;}
     if((uint32_t)(fm1_millis()-display_started)<20)return 1;
     fm1_lcd_recover();display_pending=0;return -2;
 }
-int fm1_screen_submit(unsigned x,unsigned y,unsigned w,unsigned h,uint16_t *pixels,size_t count)
+/* SMK37 MAP: minsize keeps the app image inside its Flash area; SPI-bound. */
+__attribute__((minsize)) int fm1_screen_submit(unsigned x,unsigned y,unsigned w,unsigned h,uint16_t *pixels,size_t count)
 {
     if(!display_valid(x,y,w,h,pixels,count)||w*h>FM1_SCREEN_DMA_PIXELS)return -1;
     int busy=fm1_screen_pending();if(busy)return busy;
@@ -86,7 +90,8 @@ static void display_delay(unsigned ms)
 {
     while(ms--)for(volatile unsigned spin=0;spin<25000;spin++) {}
 }
-void fm1_screen_init(void)
+/* SMK37 MAP: minsize keeps the app image inside its Flash area; SPI-bound. */
+__attribute__((minsize)) void fm1_screen_init(void)
 {
     display_finish();fm1_lcd_hw_init();fm1_lcd_baud(4);
     display_command(0x28);display_delay(100);

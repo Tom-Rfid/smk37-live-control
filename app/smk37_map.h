@@ -41,6 +41,7 @@ void smk37_map_edit(unsigned control, unsigned parameter, int delta);
 void smk37_map_clear(unsigned control);
 extern const char *const smk37_map_target_names[SMK37_MAP_TARGETS];
 
+unsigned smk37_map_cc_value(unsigned control);
 int smk37_map_encoder(unsigned id, int delta);
 int smk37_map_fader(unsigned id, unsigned value);
 

@@ -1,9 +1,18 @@
-# Control map (BT long press)
+# LIVE control page (BT)
 
-Press **BT** to open **CONTROL MAP**; press it again for **LIVE SETUP**. This build removes the BLUETOOTH settings
-page (and its HOME+GLO and ACTIONS shortcuts now open CONTROL MAP): the V01 app
-image had only 29 bytes of free Flash, and the page's code makes room for the map.
-The Bluetooth stack itself is part of the binary SDK and stays as last configured.
+Assignments play **only on the BT page**, so the firmware's own knob and fader
+roles stay untouched everywhere else.
+
+- **BT click**: opens **LIVE CONTROL** (grey, orange text). Assigned knobs and
+  faders act here; the last one moved is shown large with its value and a bar.
+  Unassigned K1-K7 do nothing on LIVE; K8 stays MASTER. Keys keep playing.
+- **HOME** (`<` or PATCH) or **BT held 2 s** (green progress bar): editing
+  (CONTROL MAP 1/2, LIVE SETUP 2/2; OCT-/OCT+ change page).
+- In editing, **HOME** or **BT** returns to LIVE. On LIVE, **BT** exits.
+
+This build removes the BLUETOOTH settings page, the DX7 PATCH NAME page and the
+startup animation, and size-optimises the LCD transfer functions: the V01 app
+image had only 29 bytes of free Flash.
 
 Each of the twelve controls, K1–K8 and F1–F4, can keep its normal behaviour
 (`DEFAULT`) or drive one target:
@@ -33,9 +42,7 @@ On the MAP page: **K1** (or PRESETS) chooses the row, **K2** the target,
 **K3** the track (SEL = selected track) or CC number, **K4** the MIDI channel.
 Moving a fader selects its row. **SAVE** sets the row back to DEFAULT. **HOME** exits.
 
-Knob assignments are active on HOME and MIX only; editor pages keep their own
-knobs, and holding **SHIFT** bypasses them. Fader assignments apply on every
-page. Assignments are device preferences, saved with the panel settings
+Assignments are device preferences, saved with the panel settings
 (independent of projects and undo) about 1.5 s after the last change.
 
 Storage: a 60-byte tail (magic SMK2) after the panel settings in the tuning/preferences
@@ -48,4 +55,4 @@ Host test: `tools/host-tests/run.sh` (clang on Linux, macOS or WSL).
 
 Also removed for Flash space: the DX7 PATCH NAME page and the startup animation.
 
-Size: Elite build 452,484-byte app image for a 453,921-byte limit (V01: 453,892).
+Size: Elite build 453,444-byte app image for a 453,921-byte limit (V01: 453,892).

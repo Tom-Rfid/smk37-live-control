@@ -4,6 +4,9 @@
 static struct smk37_map_entry map[SMK37_MAP_CONTROLS];
 uint8_t smk37_setup[4];
 static uint8_t map_fader_last[SMK37_MAP_FADERS], map_fader_seen, map_cc[SMK37_MAP_CONTROLS];
+uint8_t smk37_map_last = 255;
+uint16_t smk37_map_moves;
+unsigned smk37_map_cc_value(unsigned control) { return map_cc[control % SMK37_MAP_CONTROLS]; }
 
 const char *const smk37_map_target_names[SMK37_MAP_TARGETS] = {
     "DEFAULT", "LEVEL", "REVERB", "DELAY", "CUTOFF", "LFO RATE", "LFO DEPTH", "LFO WAVE",
@@ -47,6 +50,7 @@ static unsigned map_velocity(unsigned v)
 static void map_apply(unsigned control, int delta, int absolute)
 {
     const struct smk37_map_entry *e = &map[control];
+    smk37_map_last = (uint8_t)control; ++smk37_map_moves;
     unsigned target = e->target, t = e->track ? e->track - 1U : smk37_screen_track() % GROOVE_TRACKS;
     unsigned dx7 = groove_source_type(t) == GROOVE_DX7;
     if (target == SMK37_MAP_LEVEL) groove_control_edit(t, 0, delta, 0);
@@ -74,7 +78,8 @@ static void map_apply(unsigned control, int delta, int absolute)
 }
 int smk37_map_encoder(unsigned id, int delta)
 {
-    if (id >= SMK37_MAP_KNOBS || !map[id].target || smk37_screen_map_mode() != 1 || smk37_shift()) return 0;
+    if (id >= SMK37_MAP_KNOBS || smk37_screen_map_mode() != 1) return 0;
+    if (!map[id].target) return id < 7; /* LIVE: unassigned K1-K7 do nothing; K8 stays MASTER */
     map_apply(id, delta << smk37_setup[SMK37_SETUP_SPEED], -1);
     return 1;
 }
@@ -87,8 +92,8 @@ int smk37_map_fader(unsigned id, unsigned value)
     int previous = map_fader_last[id];
     unsigned seen = map_fader_seen & bit;
     map_fader_last[id] = (uint8_t)value; map_fader_seen |= (uint8_t)bit;
-    if (target == SMK37_MAP_DEFAULT || target == SMK37_MAP_LEVEL) return 0;
-    if (seen && (int)value != previous && smk37_screen_map_mode() != 2) {
+    if (target == SMK37_MAP_DEFAULT || target == SMK37_MAP_LEVEL || smk37_screen_map_mode() != 1) return 0;
+    if (seen && (int)value != previous) {
         unsigned absolute = target == SMK37_MAP_REVERB || target == SMK37_MAP_DELAY || target == SMK37_MAP_CC;
         map_apply(control, (int)value - previous, absolute ? (int)value : -1);
     }
