@@ -56,3 +56,12 @@ Host test: `tools/host-tests/run.sh` (clang on Linux, macOS or WSL).
 Also removed for Flash space: the DX7 PATCH NAME page and the startup animation.
 
 Size: Elite build 453,444-byte app image for a 453,921-byte limit (V01: 453,892).
+
+## VS Code
+
+Open this folder in VS Code (File > Open Folder) and install the recommended C/C++ extension.
+
+- `Ctrl+Shift+B`: build the Elite firmware (`build-elite.bat`, gives `SMK37_ELITE_OPEN_MAP.fwsc`).
+- Terminal > Run Task: workbench to flash (`build.bat elite --package`), browser simulator (`build.bat --web`), simulator tests.
+- `F5`: build the simulator tests with `-g` using CodeBlocks' MinGW and debug them with gdb. Put breakpoints in `app/smk37_map.inc`, `app/screen.c` or `app/smk37_controls.c`.
+- Without VS Code: `tools\host-tests\run.bat` runs the same tests.

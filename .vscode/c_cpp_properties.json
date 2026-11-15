@@ -1,0 +1,26 @@
+{
+  "configurations": [
+    {
+      "name": "Firmware SMK37 Elite (PI32v2)",
+      "includePath": [
+        "${workspaceFolder}/sdk/include", "${workspaceFolder}/sdk/include/libc", "${workspaceFolder}/app/synth",
+        "${workspaceFolder}/sdk/config", "${workspaceFolder}/app", "${workspaceFolder}/app/board"
+      ],
+      "defines": ["SMK37_MODEL_ELITE=1", "__GCC_PI32V2__"],
+      "cStandard": "c11",
+      "intelliSenseMode": "clang-x86"
+    },
+    {
+      "name": "Simulateur (MinGW CodeBlocks)",
+      "includePath": [
+        "${workspaceFolder}/web/engine", "${workspaceFolder}/web/synth", "${workspaceFolder}/third_party/synth",
+        "${workspaceFolder}/sdk/include", "${workspaceFolder}/app/synth", "${workspaceFolder}/app"
+      ],
+      "defines": ["FM1_HOST_TEST", "FM1_OPEN_WEB"],
+      "compilerPath": "C:/Program Files/CodeBlocks/MinGW/bin/gcc.exe",
+      "cStandard": "c11",
+      "intelliSenseMode": "windows-gcc-x64"
+    }
+  ],
+  "version": 4
+}

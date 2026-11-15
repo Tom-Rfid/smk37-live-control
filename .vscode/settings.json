@@ -1,0 +1,9 @@
+{
+  "files.associations": { "*.inc": "c", "*.h": "c" },
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "editor.tabSize": 4,
+  "search.exclude": { "build/**": true, "toolchain/**": true, "sdk/lib/**": true, "sdk/firmware/**": true },
+  "files.watcherExclude": { "build/**": true, "toolchain/**": true },
+  "C_Cpp.default.cStandard": "c11"
+}

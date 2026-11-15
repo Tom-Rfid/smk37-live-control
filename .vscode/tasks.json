@@ -1,0 +1,77 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Firmware Elite (.fwsc)",
+      "detail": "build-elite.bat : compile et produit SMK37_ELITE_OPEN_MAP.fwsc (taille affichée : FM1 xxx bytes app image, limite 453921)",
+      "type": "shell",
+      "command": "${workspaceFolder}\\build-elite.bat",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Workbench Elite (à flasher)",
+      "detail": "build.bat elite --package : firmware + page web build\\official-web\\elite\\SMK37-Open-Source.html",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$env:FM1_PI32_TOOLCHAIN = \"${workspaceFolder}\\toolchain\\pi32\"; $env:FM1_SOURCE_URL = 'https://github.com/m-vave/smk37_open'; & \"${workspaceFolder}\\build.bat\" elite --package; exit $LASTEXITCODE"
+      ],
+      "group": "build",
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Ouvrir le workbench construit",
+      "type": "shell",
+      "command": "start \"\" \"${workspaceFolder}\\build\\official-web\\elite\\SMK37-Open-Source.html\"",
+      "options": {
+        "shell": {
+          "executable": "cmd.exe",
+          "args": [
+            "/d",
+            "/c"
+          ]
+        }
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Simulateur dans le navigateur (preview)",
+      "detail": "build.bat --web : build\\preview\\index.html, le clavier virtuel avec ton code (télécharge WASI SDK 27 la première fois)",
+      "type": "shell",
+      "command": "${workspaceFolder}\\build.bat",
+      "args": [
+        "--web"
+      ],
+      "group": "build",
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Tests simulateur",
+      "detail": "tools\\host-tests\\run.bat : compile l'appli pour le PC (MinGW de CodeBlocks) et joue les scénarios",
+      "type": "shell",
+      "command": "${workspaceFolder}\\tools\\host-tests\\run.bat",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Compiler les tests (debug)",
+      "type": "shell",
+      "command": "${workspaceFolder}\\tools\\host-tests\\run.bat",
+      "args": [
+        "build"
+      ],
+      "problemMatcher": "$gcc"
+    }
+  ]
+}
