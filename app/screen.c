@@ -115,9 +115,7 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
             uint16_t *pixel = paint_pixels + (row - paint_top) * stride + first_col - paint_x;
             for (unsigned col = first_col; col < end_col; ++col) {
                 unsigned column = (col - x) / scale;
-                if (column < 5U && (shape[column] & mask)) *pixel = color;
-                else if (background != color) *pixel = background;
-                ++pixel;
+                *pixel++ = column < 5U && (shape[column] & mask) ? color : background;
             }
         }
     }
@@ -148,6 +146,7 @@ static const struct fm_page {
     {"LFO", {"WAVE", "SPEED", "PMD", "AMD"}, {142, 137, 139, 140}, 0},
     {"LFO MOD", {"DELAY", "P SENS", "LFO SYNC", "OSC SYNC"}, {138, 143, 141, 136}, 0}};
 static const char *const source_names[] = {"DX7 FM", "BASS 303", "DRUM 808", "PSG", "PLUCK", "SAMPLER"};
+static const char *const chip_names[] = {"PSG YM", "PSG AY", "PSG NOIS", "PSG MIX"};
 static const char *const actions[] = {"STEP DETAILS", "RHYTHM / RECORD", "COPY STEP", "COPY PAGE", "COPY TRACK",
     "PASTE STEP", "PASTE PAGE", "PASTE TRACK", "CLEAR STEP", "CLEAR PAGE", "CLEAR TRACK",
     "REPEAT TO 32", "REPEAT TO 48", "REPEAT TO 64", "UNDO / REDO", "COPY TIMBRE", "PASTE TIMBRE",
@@ -166,7 +165,6 @@ static unsigned panel_modes_seen;
 static uint32_t fader_feedback_seen;
 /* Boot logo removed (Flash space): boot_active is a constant 0. */
 enum { boot_active = 0 };
-static unsigned boot_phase;
 static uint32_t boot_started;
 static const char *const seq_pages[] = {"1/7 BASIC", "2/7 STEP DETAILS", "3/7 RHYTHM/REC", "4/7 LOCKS", "5/7 SYNC / LOOP", "6/7 MIDI TRACK", "7/7 MIDI OUTPUT"};
 /* Keep input and output channels together; output switches are global. */
@@ -456,7 +454,7 @@ static void line(int x, int y, int end_x, int end_y, uint16_t color)
 #ifdef FM1_HOST_TEST
 static char web_knobs[4][2][16];
 #endif
-/* The K1-K4 cell being turned is drawn bold orange with an orange outline for 0.8 s. */
+/* The K1-K4 cell being turned is drawn larger, orange, with an orange outline for 0.8 s. */
 static unsigned hot_col = 9;
 static uint32_t hot_until;
 static void knob(unsigned col, const char *label, const char *value, uint16_t color)
@@ -479,12 +477,13 @@ static void knob(unsigned col, const char *label, const char *value, uint16_t co
         return;
     cache->foot_cache[col] = sig;
     unsigned x = 6 + 59 * col;
-    erase(x, 195, 54, 32);
+    erase(x, 195, 54, 34);
     paint_fill(x, 195, 54, 2, color);
     plain_text(x, 200, label);
-    unsigned scale = strlen(value) <= 4 ? 2 : 1;
-    text(x, 212, value, scale, color, BACK);
-    if (hot) { text(x + 1, 212, value, scale, color, color); frame(x, 195, 54, 32, AMBER); }
+    unsigned n = (unsigned)strlen(value), scale = n <= 4 ? 2 : 1;
+    if (hot && n <= 3) scale = 3; /* zoom */
+    text(x, scale == 3 ? 207 : 212, value, scale, color, BACK);
+    if (hot) frame(x, 195, 54, 34, AMBER);
 }
 static __attribute__((noinline)) void header(const struct groove_view *v)
 {
@@ -561,7 +560,6 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
         dim_text(190, 35, step_follow ? "-" : "/");
         small_number(196, 35, step_follow ? first + 16 : v[track].sequence_length, 2, TEXT);
     }
-    static const char *const chip_names[] = {"PSG YM", "PSG AY", "PSG NOIS", "PSG MIX"};
     for (unsigned t = 0; t < 8; ++t) {
         unsigned y = 48 + 18 * t;
         if (paint_rendering && (y >= paint_top + PAINT_ROWS || y + 16 <= paint_top)) continue;
@@ -913,7 +911,7 @@ static __attribute__((noinline)) void tone_draw(const uint8_t values[GROOVE_TONE
         static const char *const pages[] = {"FILTER", "OSCILLATOR / LEVEL", "DRIVE / SLIDE"};
         color_text(8, 56, page == FM_ENV && !groove_pad_count(track) ? source_names[type]
              : type == GROOVE_PSG                           ? "8 VOICES  YM / AY CHIPS"
-             : type == GROOVE_PLUCK                       ? "8 VOICES  KARPLUS STRONG"
+             : type == GROOVE_PLUCK                       ? "8 VOICES KARPLUS"
              : type == GROOVE_303                         ? pages[pg]
              : type == GROOVE_808 && part == GROOVE_DRUMS ? "KIT SETTINGS"
                                                           : groove_pad_name(track, part), TEXT);
@@ -921,9 +919,9 @@ static __attribute__((noinline)) void tone_draw(const uint8_t values[GROOVE_TONE
              : type == GROOVE_PSG     ? "KEYS PLAY  K7 MODE"
              : type == GROOVE_PLUCK ? "KEYS PLAY  KNOBS EDIT"
              : type == GROOVE_303
-                 ? (view.mono ? "MONO SLIDE  MONO/POLY KEYS" : "POLY 4      MONO/POLY KEYS")
+                 ? (view.mono ? "MONO SLIDE  MONO/POLY KEYS" : "POLY 4   MONO/POLY KEYS")
              : type == GROOVE_SAMPLE ? "PADS 1-8 PLAY / SELECT"
-                                     : page == FM_ENV ? "K7 DRUM  KEYS PLAY" : "K7 DRUM / KIT  KEYS PLAY", DIM);
+                                     : page == FM_ENV ? "K7 DRUM  KEYS PLAY" : "K7 KIT  KEYS PLAY", DIM);
         memset(cache->tile_cache, 0xff, sizeof cache->tile_cache);
     }
     if (!groove_pad_count(track)) {
@@ -1023,12 +1021,15 @@ static uint8_t live_note; /* last note + 1, 0 none */
 /* LFO preview on LIVE: shape (DX7 order TRI SAWDN SAWUP SQR SINE S&H, 255 none),
  * rate and depth in percent. */
 static uint8_t lfo_shape = 255, lfo_rate, lfo_depth;
+static char live_name[12]; /* SOUND: name of the sound, "" otherwise */
+static void fraction(char *out, unsigned n, unsigned max)
+{ out += strlen(out); decimal(out, (int)n, 1); strcat(out, "/"); decimal(out + strlen(out), (int)max, 1); }
 static __attribute__((minsize)) void map_value(unsigned control, char out[16], unsigned *bar)
 {
     const struct smk37_map_entry *e = smk37_map_get(control);
     unsigned target = e->target, t = e->track ? e->track - 1U : track;
     int value = -1, max = 0;
-    *bar = 255; out[0] = 0; lfo_shape = 255;
+    *bar = 255; out[0] = 0; lfo_shape = 255; live_name[0] = 0;
     struct groove_view v; groove_get_view(t, 0, &v);
     if (target == SMK37_MAP_LEVEL) { value = v.volume; max = 127; }
     else if (target == SMK37_MAP_REVERB || target == SMK37_MAP_DELAY) {
@@ -1043,9 +1044,10 @@ static __attribute__((minsize)) void map_value(unsigned control, char out[16], u
             if (k < 3) { lfo_shape = frame_patch[142] % 6; lfo_rate = frame_patch[137]; lfo_depth = frame_patch[139]; } }
         else if (k < 3) { groove_lfo_copy(t, lfo); value = lfo[k == 2 ? 3 : k]; max = 100;
             lfo_shape = shape[lfo[3] % 4]; lfo_rate = lfo[0]; lfo_depth = lfo[1]; }
-        if (k == 2 && value >= 0) {
-            static const char *const waves[] = {"TRI", "SAW DN", "SAW UP", "SQUARE", "SINE", "S&H"};
-            strcpy(out, waves[lfo_shape]); return;
+        if (k == 2 && value >= 0) { /* "SQR 4/6": shape, then its place among the engine's shapes */
+            static const char *const waves[] = {"TRI", "SAW-", "SAW+", "SQR", "SINE", "S&H"};
+            unsigned count = dx7 ? 6 : 4;
+            strcpy(out, waves[lfo_shape]); strcat(out, " "); fraction(out, value % count + 1, count); return;
         }
     } else if (target >= SMK37_MAP_REV_TIME && target <= SMK37_MAP_FX_RETURN) {
         uint8_t fx[4]; groove_effects_get(fx); value = fx[target - SMK37_MAP_REV_TIME];
@@ -1054,7 +1056,10 @@ static __attribute__((minsize)) void map_value(unsigned control, char out[16], u
     else if (target == SMK37_MAP_SOUND) {
         static const uint8_t counts[GROOVE_SOURCES] = {FM1_FM_PROGRAMS, 2, 1, 4, 1, 1}; /* sounds per engine */
         unsigned count = counts[groove_source_type(t) % GROOVE_SOURCES];
-        decimal(out, v.program % count + 1, 1); strcat(out, "/"); decimal(out + strlen(out), count, 1);
+        fraction(out, v.program % count + 1, count);
+        unsigned type = groove_source_type(t);
+        if (type == GROOVE_DX7 && !groove_fm_copy(t, frame_patch, NULL)) { memcpy(live_name, frame_patch + 145, 10); live_name[10] = 0; }
+        else strcpy(live_name, type == GROOVE_303 ? (v.program ? "303 SQR" : "303 SAW") : type == GROOVE_PSG ? chip_names[v.program & 3U] : source_names[type % GROOVE_SOURCES]);
         *bar = v.program % count * 100U / count; return;
     }
     else if (target == SMK37_MAP_KEYS) { out[0] = 'T'; out[1] = (char)('1' + track); out[2] = 0; return; }
@@ -1073,7 +1078,7 @@ static __attribute__((noinline, minsize)) void draw_live(void)
         memset(cache->cell_cache, 0xff, sizeof cache->cell_cache);
         paint_fill(0, 0, 240, 240, GREY);
         text(8, 8, "LIVE CONTROL", 2, AMBER, GREY);
-        text(8, 229, "HOLD BT: EDIT   BT OR </PATCH: EXIT", 1, AMBER, GREY);
+        text(8, 229, "HOLD BT: EDIT   BT/</PATCH: EXIT", 1, AMBER, GREY);
     }
     /* Green progress bar while BT is held towards editing. */
     uint32_t since = smk37_bt_hold_since();
@@ -1089,39 +1094,49 @@ static __attribute__((noinline, minsize)) void draw_live(void)
     }
     unsigned last = smk37_map_last, bar = 255;
     if (last < SMK37_MAP_CONTROLS) map_value(last, value, &bar); else strcpy(value, "");
-    uint32_t sig = signature(last * 977U + bar + lfo_rate * 7U + lfo_depth * 131U, value, (unsigned)strlen(value));
+    uint32_t sig = signature(signature(last * 977U + bar + lfo_rate * 7U + lfo_depth * 131U, value, (unsigned)strlen(value)), live_name, 10);
     if (cache->cell_cache[1][0] != sig) {
         cache->cell_cache[1][0] = sig;
-        paint_fill(0, 40, 240, 72, GREY);
+        paint_fill(0, 40, 240, 84, GREY);
         if (last >= SMK37_MAP_CONTROLS) text(8, 60, "MOVE A CONTROL", 1, AMBER, GREY);
         else {
             map_label(last, label, smk37_map_get(last)->target != 0);
             text(8, 42, label, 2, AMBER, GREY);
-            text(8, 66, value, lfo_shape < 6 ? 3 : 4, AMBER, GREY);
+            text(8, 66, value, lfo_shape < 6 ? 2 : 4, AMBER, GREY);
+            text(8, 98, live_name, 2, TEXT, GREY);
             if (lfo_shape < 6) {
                 /* LFO preview: 1-6 cycles from RATE, height from DEPTH, current shape. */
                 unsigned cycles = 1U + (lfo_rate * 13U >> 8), amp = 5U + (lfo_depth * 26U >> 8), sh = lfo_shape;
                 int py = 0;
-                for (unsigned x = 0; x < 104; ++x) {
-                    unsigned n = x * cycles * 5U >> 1, p = n & 255U, s = p & 127U, q = s * (128 - s) >> 5;
+                for (unsigned x = 0; x < 88; ++x) {
+                    unsigned n = x * cycles * 3U, p = n & 255U, s = p & 127U, q = s * (128 - s) >> 5;
                     unsigned v = sh == 0 ? (p < 128 ? p * 2 : 511 - p * 2) : sh == 1 ? 255 - p : sh == 2 ? p
                         : sh == 3 ? (p < 128 ? 255 : 0) : sh == 4 ? (p < 128 ? 128 + q : 128 - q)
                         : (n >> 8) * 151U * 73U & 255U;
                     int y = 80 - (((int)v - 128) * (int)amp >> 7);
-                    if (x) line(127 + (int)x, py, 128 + (int)x, y, AMBER);
+                    if (x) line(143 + (int)x, py, 144 + (int)x, y, AMBER);
                     py = y;
                 }
             }
-            if (bar <= 100) { paint_fill(8, 102, 224, 6, PANEL); paint_fill(8, 102, bar * 224U / 100U, 6, AMBER); }
+            if (bar <= 100) { paint_fill(8, 116, 224, 6, PANEL); paint_fill(8, 116, bar * 224U / 100U, 6, AMBER); }
+        }
+    }
+    /* Rows "K4 KEYS TRK T8": values are read once per frame, not per paint band. */
+    static char rows[SMK37_MAP_CONTROLS][20];
+    for (unsigned i = 0; i < SMK37_MAP_CONTROLS && !paint_rendering; ++i) {
+        map_label(i, rows[i], 0);
+        if (smk37_map_get(i)->target) {
+            map_value(i, value, &bar);
+            char *sp = strchr(value, ' '); if (sp) *sp = 0; /* "SQR 4/6" -> "SQR" */
+            if (strlen(rows[i]) + strlen(value) < 18) { strcat(rows[i], " "); strcat(rows[i], value); }
         }
     }
     for (unsigned i = 0; i < SMK37_MAP_CONTROLS; ++i) {
-        const struct smk37_map_entry *e = smk37_map_get(i);
-        uint32_t row = signature(i == last, e, sizeof *e);
+        uint32_t row = signature(i == last, rows[i], 19);
         if (cache->tile_cache[i] == row) continue;
         cache->tile_cache[i] = row;
-        map_label(i, label, 0);
-        unsigned x = i < 6 ? 8 : 124, y = 120 + (i % 6) * 14;
+        strcpy(label, rows[i]);
+        unsigned x = i < 6 ? 8 : 124, y = 128 + (i % 6) * 14;
         paint_fill(x, y, 112, 10, GREY);
         text(x, y + 1, label, 1, i == last ? TEXT : AMBER, GREY);
     }
@@ -1134,7 +1149,7 @@ static __attribute__((noinline, minsize)) void draw_map(void)
         memset(cache->tile_cache, 0xff, sizeof cache->tile_cache);
         erase(0, 0, 240, 240);
         text(8, 8, map_page ? "LIVE SETUP 2/2" : "CONTROL MAP 1/2", 2, ACCENT, BACK);
-        dim_text(8, 213, map_page ? "K1 ROW  K2 VALUE" : "K1 ROW K2 TYPE K3 TRK/CC K4 CH K5 ALL");
+        dim_text(8, 213, map_page ? "K1 ROW  K2 VALUE" : "K1 ROW K2 TYPE K3 TRK K4 CH K5 ALL");
         dim_text(8, 229, "> DEFAULT  OCT PAGE  BT: LIVE");
     }
     char line[32];
@@ -1246,7 +1261,7 @@ static __attribute__((noinline)) void preset_draw(void)
     text(38, 65, "/16", 2, DIM, BACK);
     text(8, 97, project_stored_result < 0 ? "READ ERROR" : project_stored, 2, TEXT, BACK);
     plain_text(8, 127, "K5 / K7 LOAD");
-    plain_text(8, 148, "PLAY LOAD + RUN   > PROJECT");
+    plain_text(8, 148, "PLAY LOAD+RUN  > PROJECT");
     dim_text(8, 170, "PADS 1-16 LOAD DIRECTLY");
     dim_text(8, 191, "K1 BANK: USER / FACTORY");
     color_text(8, 213, project_result == GROOVE_PROJECT_EMPTY ? "EMPTY SLOT" :
@@ -1422,13 +1437,13 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
             number(x + 4, y + 6, i + 1, 1, 1, i == source_preview ? ACCENT : DIM, bg);
             text(x + 18, y + 6, source_names[i], 1, i == source_preview ? TEXT : DIM, bg);
         }
-        accent_text(8, 166, source_preview == groove_source_type(track) ? "CURRENT SOUND" : "NEW SOURCE RESETS TIMBRE");
+        accent_text(8, 166, source_preview == groove_source_type(track) ? "CURRENT SOUND" : "NEW SOURCE: RESET TIMBRE");
         unsigned role = groove_track_role(track);
         plain_text(8, 184, "K2 TRACK:"); accent_text(80, 184, track_modes[role]);
-        static const char *const hints[] = {"PROJECT: FOLLOWS PROJECT", "LIVE: SOUND KEPT ON LOAD", "OFF: TURN K2 LEFT"};
+        static const char *const hints[] = {"PROJECT MODE", "LIVE: SOUND KEPT", "OFF: TURN K2 LEFT"};
         dim_text(8, 198, source_preview == groove_source_type(track) ? hints[role] : "CLEARS STEPS");
-        color_text(8, 216, source_result ? "NOT ENOUGH MEMORY - RETRY" : "K1 / PADS 1-6 CHOOSE", source_result ? AMBER : TEXT);
-        dim_text(8, 231, role == GROOVE_TRACK_OFF ? "K2 ENABLE TRACK  </PATCH BACK" : "> APPLY SOUND  </PATCH BACK");
+        color_text(8, 216, source_result ? "LOW MEMORY - RETRY" : "K1 / PADS 1-6 CHOOSE", source_result ? AMBER : TEXT);
+        dim_text(8, 231, role == GROOVE_TRACK_OFF ? "K2 ENABLE TRACK" : "> APPLY SOUND  </PATCH BACK");
     } else if (visible == ACTIONS) {
         if (action_confirm) color_text(8, 38, "REPLACE PATTERN DATA?", AMBER);
         else {
@@ -1445,14 +1460,14 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
             paint_fill(6, y, 228, 17, bg);
             text(10, y + 5, actions[at], 1, at == action ? ACCENT : DIM, bg);
         }
-        plain_text(8, 213, notice ? notice : "K1 / K5 ACTION  > EXECUTE");
+        plain_text(8, 213, notice ? notice : "K5 ACTION  > EXECUTE");
         dim_text(8, 231, action_confirm ? "> CONFIRM   </PATCH CANCEL" : "K7 STEP  OCT PAGE  > DO");
     } else if (visible == ARP_EDIT) {
         text(8, 40, "ARPEGGIATOR", 2, ACCENT, BACK);
         text(184, 40, "T", 2, colors[track], BACK);
         number(198, 40, track + 1, 1, 2, colors[track], BACK);
         plain_text(8, 72, !groove_arp_enabled(track) ? "OFF - TAP ARP TO ENABLE" : groove_arp_setting(track, 5) ? "HOLD LATCHES CHORD" : "ON - HOLD KEYS TO PLAY");
-        dim_text(8, 96, "SELECT TRACK  K1-K4 ADJUST");
+        dim_text(8, 96, "K5 TRACK  K1-K4 ADJUST");
         dim_text(8, 118, "RATE FOLLOWS BPM");
         dim_text(8, 140, arp_page ? "RELEASE KEYS" : groove_pad_count(track) ? "DRUMS: NO RANGE / GATE" : "UP/DOWN/UP-DOWN/RANDOM");
         dim_text(8, 162, "ARP: SEQ 6/7 OUT PORT");
@@ -1484,29 +1499,12 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         text(72, 72, name, 2, TEXT, BACK);
         plain_text(8, 102, "K7 VOICE  K6 BANK");
         dim_text(8, 126, "HOLD PARA: FULL FM");
-        dim_text(8, 148, "CHORD ENVELOPE  KNOB BANK+CHORD LFO");
+        dim_text(8, 148, "CHORD ENV  KNOB BANK+CHORD LFO");
         dim_text(8, 170, "KEYS PLAY  K5 TRACK");
         static const char *const labels[] = {"ALGORITHM", "FEEDBACK", "TRANSPOSE", "LEVEL"};
         int values[] = {frame_patch[134] + 1, frame_patch[135], (int)frame_patch[144] - 24, frame_views[track].volume};
         for (unsigned i = 0; i < 4; ++i) { char value[12]; decimal(value, values[i], 1); knob(i, labels[i], value, colors[i]); }
     }
-}
-static __attribute__((noinline, cold, minsize)) void boot_draw(void)
-{
-    if (cache->title_cache != 0) {
-        cache->title_cache = 0;
-        text(60, 48, "SMK37", 4, TEXT, BACK);
-        accent_text(81, 98, "OFFICIAL OPEN");
-        text((240 - 12 * (sizeof FM1_RELEASE_VERSION - 1)) / 2, 120,
-             FM1_RELEASE_VERSION, 2, TEXT, BACK);
-        dim_text(102, 208, "M-VAVE");
-    }
-    if (cache->middle_cache == boot_phase) return;
-    cache->middle_cache = boot_phase;
-    static const uint8_t height[8] = {8, 18, 30, 42, 42, 30, 18, 8};
-    for (unsigned i = 0; i < 8; ++i)
-        paint_fill(58 + 16 * i, 166 - height[i] / 2, 12, height[i],
-                   i < boot_phase ? colors[i] : PANEL);
 }
 /* Explain intentional silence without changing performance or MIDI routing.
  * REC remains global: external MIDI may record other NORMAL tracks while
@@ -1515,7 +1513,7 @@ static __attribute__((noinline)) const char *performance_hint(unsigned visible, 
 {
     const struct groove_view *v = &views[track];
     unsigned role = groove_track_role(track);
-    if (visible == STEPS && seq_page == 5) return "K1 IN: RECEIVE  K2 OUT: SEND";
+    if (visible == STEPS && seq_page == 5) return "K1 IN CH  K2 OUT CH";
     if (role == GROOVE_TRACK_OFF) return "TRACK OFF: KNOB BANK+PATCH";
     if (!fm1_engine_output_level()) return "MASTER MUTED";
     if (v->muted) return "TRACK MUTED";
@@ -1548,7 +1546,6 @@ static __attribute__((noinline, cold, minsize)) void draw_page_body(const struct
         if (visible == PROJECT || visible == PRESET_BROWSER)
             text(8, 8, visible == PROJECT ? "SAVE PROJECT" : "PRESETS", 2, ACCENT, BACK);
     }
-    if (visible == STARTUP) { boot_draw(); return; }
     const struct groove_view *views = frame_views, *v = &views[track];
     if (!paint_rendering) leds(v, visible);
     if (visible == PRESET_BROWSER) {
@@ -1579,7 +1576,7 @@ static __attribute__((noinline, cold, minsize)) void draw_page_body(const struct
     }
     if (visible == FM_LFO && v->type != GROOVE_DX7) {
         track_lfo_draw();
-        hint_draw(state_hint ? state_hint : "KNOB BANK+CHORD BACK  </PATCH TRACKS");
+        hint_draw(state_hint ? state_hint : "KNOB BANK+CHORD BACK");
         return;
     }
     const uint8_t *patch = frame_patch;
@@ -1731,17 +1728,17 @@ static __attribute__((noinline, cold, minsize)) void draw_page_body(const struct
     const char *hint = state_hint ? state_hint
                        : v->clock_mode && v->clock_state != GROOVE_CLOCK_LOCKED
                            ? "WAITING FOR MIDI CLOCK"
-                       : writing && groove_sequence_count_in() ? "COUNT IN - REC ON NEXT BAR"
+                       : writing && groove_sequence_count_in() ? "COUNT IN: NEXT BAR"
                        : writing ? v->playing ? "LIVE REC - REC TO FINISH"
                                                              : "STEP REC - REC TO FINISH"
                        : visible == OVERVIEW && (previous_buttons & BUTTON(HOME))
-                           ? "K7 SOURCE  PARA PARAMETERS"
+                           ? "K7 SOURCE  PARA EDIT"
                        : visible == OVERVIEW ? routing
-                       : visible == STEPS    ? "K7 STEP  OCT PAGE  HOLD SEQ MORE"
-                       : visible == MIX      ? "PADS MUTE/SOLO  GLOBE/</PATCH BACK"
-                       : visible == FM_EDIT  ? "PADS OP  K5 PAGE  PARA BACK"
+                       : visible == STEPS    ? "K7 STEP  OCT PAGE"
+                       : visible == MIX      ? "PADS MUTE/SOLO  GLOBE BACK"
+                       : visible == FM_EDIT  ? "PADS OP  K5 PAGE"
                        : visible == FM_ENV && v->type != GROOVE_DX7 ? "CHORD BACK  K5 TRACK"
-                       : visible == FM_ENV   ? "K7 ENV ON/OFF  </PATCH TRACKS"
+                       : visible == FM_ENV   ? "K7 ENV ON/OFF"
                        : visible == TONE_EDIT && !advanced_edit
                            ? "HOLD PARA MORE  K5 TRACK"
                            : "K5 PAGE  </PATCH TRACKS";
@@ -1754,7 +1751,7 @@ static void draw_page(const struct fm1_ble_status *ble)
         cache->shortcut_cache = track;
         paint_fill(0, 195, 240, 45, PANEL);
         text(8, 198, "KNOB BANK SHORTCUTS", 1, ACCENT, PANEL);
-        text(8, 209, "PADS 1-8 TRACK   PADS 9-16 MUTE", 1, TEXT, PANEL);
+        text(8, 209, "PADS 1-8 TRK  9-16 MUTE", 1, TEXT, PANEL);
         text(8, 220, "CHORD LFO  PATCH SOURCE  SEQ MIDI", 1, TEXT, PANEL);
         text(8, 231, "NOTE REPEAT: STEP EDIT", 1, DIM, PANEL);
     }
@@ -1776,10 +1773,6 @@ static void draw(const struct fm1_ble_status *ble)
 {
     unsigned visible = glo_down && glo_used ? MIX : page;
     frame_time = fm1_millis();
-    if (boot_active) {
-        boot_phase = (frame_time - boot_started) / 120U;
-        if (boot_phase > 8) boot_phase = 8;
-    }
     if (notice && (int32_t)(frame_time - notice_until) >= 0) notice = NULL;
     for (unsigned t = 0; t < 8; ++t) {
         unsigned n = groove_midi_activity(t);
@@ -2021,7 +2014,7 @@ static void select_track(int delta)
 void groove_screen_tap(uint32_t now)
 {
     int bpm = groove_tempo_tap(now);
-    announce(bpm < 0 ? "TAP: EXTERNAL MIDI CLOCK" : bpm ? "TAP TEMPO APPLIED" : "TAP AGAIN / </PATCH+SEQ", now + 1500U);
+    announce(bpm < 0 ? "TAP: EXT MIDI CLOCK" : bpm ? "TAP TEMPO APPLIED" : "TAP AGAIN / </PATCH+SEQ", now + 1500U);
 }
 /* Keep modal editors out of the common key/transport control frame. */
 static __attribute__((noinline)) void tone_control(const struct fm1_controls *controls, uint32_t key_down)

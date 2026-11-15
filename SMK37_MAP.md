@@ -23,6 +23,9 @@ roles stay untouched everywhere else.
   previous page 300 ms after the last change.
 - LFO targets (RATE, DEPTH, WAVE) draw a preview on LIVE: current shape,
   1-6 cycles from RATE, height from DEPTH.
+- SOUND and LFO WAVE show `n/max` (the sound/shape and how many the engine has). SOUND
+  also shows the sound name under the big value. Each LIVE row shows its own value
+  at the end (e.g. `K4 KEYS TRK T8`).
 
 This build removes the BLUETOOTH settings page, the DX7 PATCH NAME page and the
 startup animation, the BLE stage timer and the ACTIONS shortcuts, shortens some
