@@ -13,6 +13,7 @@ enum {
     ACCENT = 0x07ff,
     DIM = 0x738e,
     GREEN = 0x07e0,
+    RED = 0xf800,
     AMBER = 0xfd20
 };
 /* Five columns per glyph, bit 0 at the top. Digits followed by uppercase. */
@@ -776,7 +777,7 @@ static __attribute__((noinline, cold, minsize)) void fm_draw(const uint8_t patch
                    (fm_group == 1 || fm_group == 2 || fm_group == 6 || fm_group == 7)) {
             unsigned offset = op == 6 ? 126 : (5 - op) * 21;
             dim_text(8, 80, "RATE / LEVEL PREVIEW");
-            dim_text(8, 94, "HIGH RATE = FAST   L3 HOLDS");
+            dim_text(8, 94, "HIGH RATE FAST  L3 HOLD");
             if (op == 6)
                 paint_fill(20, 134, 201, 1, PANEL);
             int x = 20, last_y = 166 - patch[offset + 7] * 64 / 99;
@@ -1098,7 +1099,7 @@ static __attribute__((noinline, minsize)) void draw_live(void)
     if (cache->cell_cache[1][0] != sig) {
         cache->cell_cache[1][0] = sig;
         paint_fill(0, 40, 240, 84, GREY);
-        if (last >= SMK37_MAP_CONTROLS) text(8, 60, "MOVE A CONTROL", 1, AMBER, GREY);
+        if (last >= SMK37_MAP_CONTROLS) text(8, 60, "MOVE A KNOB", 1, AMBER, GREY);
         else {
             const struct smk37_map_entry *le = smk37_map_get(last);
             unsigned lt = le->track ? le->track - 1U : track;
@@ -1121,7 +1122,11 @@ static __attribute__((noinline, minsize)) void draw_live(void)
                     py = y;
                 }
             }
-            if (bar <= 100) { paint_fill(8, 116, 224, 6, PANEL); paint_fill(8, 116, bar * 224U / 100U, 6, AMBER); }
+            if (bar <= 100) {
+                /* Keyboard volume (LEVEL): green within 5% of max, red at max. */
+                uint16_t bc = le->target == SMK37_MAP_LEVEL ? (bar >= 100 ? RED : bar >= 95 ? GREEN : AMBER) : AMBER;
+                paint_fill(8, 116, 224, 6, PANEL); paint_fill(8, 116, bar * 224U / 100U, 6, bc);
+            }
         }
     }
     /* Rows "K4 KEYS TRK T8": values are read once per frame, not per paint band. */
@@ -1153,7 +1158,7 @@ static __attribute__((noinline, minsize)) void draw_map(void)
         erase(0, 0, 240, 240);
         text(8, 8, map_page ? "LIVE SETUP 2/2" : "CONTROL MAP 1/2", 2, ACCENT, BACK);
         dim_text(8, 213, map_page ? "K1 ROW  K2 VALUE" : "K1 ROW K2 TYPE K3 TRK K4 CH K5 ALL");
-        dim_text(8, 229, "> DEFAULT  OCT PAGE  BT: LIVE");
+        dim_text(8, 229, "> DEFAULT  OCT PG  BT LIVE");
     }
     char line[32];
     if (map_page) {
@@ -1472,7 +1477,7 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         plain_text(8, 72, !groove_arp_enabled(track) ? "OFF - TAP ARP TO ENABLE" : groove_arp_setting(track, 5) ? "HOLD LATCHES CHORD" : "ON - HOLD KEYS TO PLAY");
         dim_text(8, 96, "K5 TRACK  K1-K4 ADJUST");
         dim_text(8, 118, "RATE FOLLOWS BPM");
-        dim_text(8, 140, arp_page ? "RELEASE KEYS" : groove_pad_count(track) ? "DRUMS: NO RANGE / GATE" : "UP/DOWN/UP-DOWN/RANDOM");
+        dim_text(8, 140, arp_page ? "RELEASE KEYS" : groove_pad_count(track) ? "DRUMS: NO RANGE / GATE" : "UP/DN/UP-DN/RND");
         dim_text(8, 162, "ARP: SEQ 6/7 OUT PORT");
         accent_text(8, 180, arp_page ? "2/2 HOLD / MIDI  K6 PAGE" : "1/2 NOTES  K6 PAGE");
         static const char *const rates[] = {"1/4", "1/8", "1/16", "1/32"};
@@ -1753,9 +1758,9 @@ static void draw_page(const struct fm1_ble_status *ble)
     if (shift_visible && !boot_active && (paint_rendering || cache->shortcut_cache != track)) {
         cache->shortcut_cache = track;
         paint_fill(0, 195, 240, 45, PANEL);
-        text(8, 198, "KNOB BANK SHORTCUTS", 1, ACCENT, PANEL);
+        text(8, 198, "SHORTCUTS", 1, ACCENT, PANEL);
         text(8, 209, "PADS 1-8 TRK  9-16 MUTE", 1, TEXT, PANEL);
-        text(8, 220, "CHORD LFO  PATCH SOURCE  SEQ MIDI", 1, TEXT, PANEL);
+        text(8, 220, "CHORD LFO  PATCH SRC  SEQ MIDI", 1, TEXT, PANEL);
         text(8, 231, "NOTE REPEAT: STEP EDIT", 1, DIM, PANEL);
     }
     if (boot_active || page == MAP_PAGE || (paint_rendering && paint_top >= 30)) return;
@@ -2017,7 +2022,7 @@ static void select_track(int delta)
 void groove_screen_tap(uint32_t now)
 {
     int bpm = groove_tempo_tap(now);
-    announce(bpm < 0 ? "TAP: EXT MIDI CLOCK" : bpm ? "TAP TEMPO APPLIED" : "TAP AGAIN / </PATCH+SEQ", now + 1500U);
+    announce(bpm < 0 ? "TAP: EXT MIDI CLOCK" : bpm ? "TAP TEMPO" : "TAP AGAIN / </PATCH+SEQ", now + 1500U);
 }
 /* Keep modal editors out of the common key/transport control frame. */
 static __attribute__((noinline)) void tone_control(const struct fm1_controls *controls, uint32_t key_down)
@@ -2180,7 +2185,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
     if ((controls->buttons & (BUTTON(HOME) | BUTTON(SAVE))) == (BUTTON(HOME) | BUTTON(SAVE)) &&
         (pressed & (BUTTON(HOME) | BUTTON(SAVE)))) {
         int r = groove_edit_undo();
-        announce(r ? "NOTHING TO UNDO" : "UNDO / REDO APPLIED", now + 2000U);
+        announce(r ? "NOTHING TO UNDO" : "UNDO/REDO", now + 2000U);
         page = music_page;
         goto controls_done;
     }
@@ -2370,7 +2375,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                 drum_parts[track] = drum = 0;
                 selected_note = groove_pad_count(track) ? groove_pad_note(track, 0) : 60;
                 page = music_page;
-                announce("SOUND SOURCE APPLIED", now + 1500U);
+                announce("SOURCE APPLIED", now + 1500U);
             }
         }
         goto controls_done;
@@ -2524,7 +2529,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                                 r=groove_settings_track(track,1,delta);
                             }
                             else groove_settings_midi(track,parameter,delta);
-                            announce(r ? "TRACK SETTING FAILED" : parameter == 0 || parameter == 9 ? "SEQ OUTPUT UPDATED" : "MIDI SET - NOTES OFF", now + 1500U);
+                            announce(r ? "TRACK FAILED" : parameter == 0 || parameter == 9 ? "SEQ OUT SET" : "MIDI SET - NOTES OFF", now + 1500U);
                         }
                     }
                 }

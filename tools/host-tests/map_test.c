@@ -24,6 +24,7 @@ static void fader(unsigned id,unsigned v){ sim_smk37(SMK37_FADER,id,(int)v); wai
 static void row(unsigned r){ smk37_screen_map_select(r); wait(30); }
 unsigned groove_screen_web_context(void);
 int smk37_performance_octave(unsigned pad);
+void groove_control_edit(unsigned,int,int,int);
 static unsigned mode(void){ return smk37_screen_map_mode(); }
 void smk37_map_clear(unsigned);
 int main(void){
@@ -34,7 +35,13 @@ int main(void){
      && smk37_map_get(3)->target==SMK37_MAP_DLY_TIME && smk37_map_get(7)->target==SMK37_MAP_FX_RETURN
      && smk37_map_get(10)->target==SMK37_MAP_DEFAULT && smk37_map_get(11)->target==SMK37_MAP_LEVEL,
      "factory default LIVE layout loaded");
-  button(BT,100); knob(1,1); knob(1,-1); shot("00_live_default"); button(BT,100); /* show the default layout */
+  button(BT,100); knob(1,1); knob(1,-1); shot("00_live_default");
+  /* F4 = LEVEL (keyboard volume): bar amber, then green near max, red at max */
+  groove_control_edit(smk37_screen_track(),0,-127,0);               /* track volume -> 0 */
+  fader(3,0); fader(3,118); shot("15_vol_amber");                   /* 118/127 = 92% -> amber */
+  fader(3,122); shot("15_vol_green");                              /* 96% -> green (near max) */
+  fader(3,127); shot("15_vol_red");                               /* 100% -> red (max) */
+  button(BT,100); /* show the default layout */
   for(unsigned i=0;i<12;++i) smk37_map_clear(i); /* clean slate for the assignment tests below */
   /* ---- Navigation ---- */
   button(BT,100);  CHECK(mode()==1,"BT click opens LIVE");
