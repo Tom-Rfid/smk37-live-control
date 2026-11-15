@@ -6,6 +6,16 @@ English · [简体中文](README.zh-CN.md)
 
 [Workbench and development kit](https://open.m-vave.com/smk37-workbench) · [Official forum](https://forum.m-vave.com)
 
+## This fork: LIVE CONTROL
+
+Community fork of [m-vave/smk37_open](https://github.com/m-vave/smk37_open) V01, built and tested on the **SMK-37 Elite** (the Pro build compiles but is untested). `main` mirrors M-VAVE; the changes live on the `live-control` branch. Firmware and flashing workbench: see [Releases](../../releases).
+
+- **BT button = LIVE CONTROL page.** Assign K1–K8 and F1–F4 to level, reverb, delay, cutoff (303), LFO rate/depth/wave, FM feedback, shared effects, tempo, MIDI CC, SOUND (track program) or KEYS TRK (track played by the keys). Assignments act on LIVE only, or everywhere (`ALL`, per control). The screen shows the control moved, its value, an LFO preview and the last note played.
+- **Editing:** `<` or BT held 1 s. **LIVE SETUP:** velocity curve, fader pickup/jump, knob speed, Bluetooth ON/OFF.
+- On-screen hints use the printed buttons (`</PATCH`, `>`, KNOB BANK, PARA, CHORD, GLOBE…). Removed to fit Flash: the Bluetooth page, the DX7 name page, the boot logo; some status messages are shorter.
+
+Details: [SMK37_MAP.md](SMK37_MAP.md). Build on Windows: put the JieLi PI32v2 toolchain in `toolchain\pi32` (or `C:\JL\pi32`, installer: `https://jl-update.oss-cn-shenzhen.aliyuncs.com/2.5.3.exe`; if it fails, extract it with innoextract and copy its `JL\pi32` folder), then run `build-elite.bat` (firmware) or `build.bat elite --package` (workbench). VS Code tasks, a gdb setup and simulator tests (`tools\host-tests\run.bat`) are included. The Bluetooth notes below describe the stock firmware page, which this fork removes.
+
 For M-VAVE SMK-37 Pro and SMK-37 Elite, with 37 keys, 16 pads, eight encoders and four faders. The SMK37 OPEN workbench provides firmware updates, browser playback and project, sample and DX7 voice management. Select **Source and SDK** for the development kit matching that release.
 
 ## V01 features
