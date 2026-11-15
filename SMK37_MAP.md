@@ -20,6 +20,8 @@ roles stay untouched everywhere else.
   (PAD/STEP), K5 (SELECT), K6 (PAGE), K7 (PRESETS).
 - SOURCE page (KNOB BANK+PATCH): turning K2 (track mode) returns to the
   previous page 300 ms after the last change.
+- LFO targets (RATE, DEPTH, WAVE) draw a preview on LIVE: current shape,
+  1-6 cycles from RATE, height from DEPTH.
 
 This build removes the BLUETOOTH settings page, the DX7 PATCH NAME page and the
 startup animation, the BLE stage timer and the ACTIONS shortcuts, shortens some

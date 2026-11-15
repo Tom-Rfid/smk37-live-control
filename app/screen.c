@@ -1011,12 +1011,15 @@ static __attribute__((noinline, minsize)) void map_label(unsigned i, char *p, un
 }
 /* LIVE readout of one assignment: value text and 0..100 bar (255: none). */
 static uint8_t live_note; /* last note + 1, 0 none */
+/* LFO preview on LIVE: shape (DX7 order TRI SAWDN SAWUP SQR SINE S&H, 255 none),
+ * rate and depth in percent. */
+static uint8_t lfo_shape = 255, lfo_rate, lfo_depth;
 static __attribute__((minsize)) void map_value(unsigned control, char out[16], unsigned *bar)
 {
     const struct smk37_map_entry *e = smk37_map_get(control);
     unsigned target = e->target, t = e->track ? e->track - 1U : track;
     int value = -1, max = 0;
-    *bar = 255; out[0] = 0;
+    *bar = 255; out[0] = 0; lfo_shape = 255;
     struct groove_view v; groove_get_view(t, 0, &v);
     if (target == SMK37_MAP_LEVEL) { value = v.volume; max = 127; }
     else if (target == SMK37_MAP_REVERB || target == SMK37_MAP_DELAY) {
@@ -1025,13 +1028,15 @@ static __attribute__((minsize)) void map_value(unsigned control, char out[16], u
     } else if (target >= SMK37_MAP_LFO_RATE && target <= SMK37_MAP_FM_FEEDBACK) {
         unsigned k = target - SMK37_MAP_LFO_RATE, dx7 = groove_source_type(t) == GROOVE_DX7;
         uint8_t lfo[4];
+        static const uint8_t shape[4] = {0, 3, 2, 1};
         if (dx7) { groove_fm_copy(t, frame_patch, NULL);
-            static const uint8_t at[4] = {137, 139, 142, 135}; value = frame_patch[at[k]]; max = k == 3 ? 7 : 99; }
-        else if (k < 3) { groove_lfo_copy(t, lfo); value = lfo[k == 2 ? 3 : k]; max = 100; }
+            static const uint8_t at[4] = {137, 139, 142, 135}; value = frame_patch[at[k]]; max = k == 3 ? 7 : 99;
+            if (k < 3) { lfo_shape = frame_patch[142] % 6; lfo_rate = frame_patch[137]; lfo_depth = frame_patch[139]; } }
+        else if (k < 3) { groove_lfo_copy(t, lfo); value = lfo[k == 2 ? 3 : k]; max = 100;
+            lfo_shape = shape[lfo[3] % 4]; lfo_rate = lfo[0]; lfo_depth = lfo[1]; }
         if (k == 2 && value >= 0) {
             static const char *const waves[] = {"TRI", "SAW DN", "SAW UP", "SQUARE", "SINE", "S&H"};
-            static const uint8_t shape[4] = {0, 3, 2, 1};
-            strcpy(out, waves[dx7 ? value % 6 : shape[value % 4]]); return;
+            strcpy(out, waves[lfo_shape]); return;
         }
     } else if (target >= SMK37_MAP_REV_TIME && target <= SMK37_MAP_FX_RETURN) {
         uint8_t fx[4]; groove_effects_get(fx); value = fx[target - SMK37_MAP_REV_TIME];
@@ -1068,7 +1073,7 @@ static __attribute__((noinline, minsize)) void draw_live(void)
     }
     unsigned last = smk37_map_last, bar = 255;
     if (last < SMK37_MAP_CONTROLS) map_value(last, value, &bar); else strcpy(value, "");
-    uint32_t sig = signature(last * 977U + bar, value, (unsigned)strlen(value));
+    uint32_t sig = signature(last * 977U + bar + lfo_rate * 7U + lfo_depth * 131U, value, (unsigned)strlen(value));
     if (cache->cell_cache[1][0] != sig) {
         cache->cell_cache[1][0] = sig;
         paint_fill(0, 40, 240, 72, GREY);
@@ -1076,7 +1081,21 @@ static __attribute__((noinline, minsize)) void draw_live(void)
         else {
             map_label(last, label, smk37_map_get(last)->target != 0);
             text(8, 42, label, 2, AMBER, GREY);
-            text(8, 66, value, 4, AMBER, GREY);
+            text(8, 66, value, lfo_shape < 6 ? 3 : 4, AMBER, GREY);
+            if (lfo_shape < 6) {
+                /* LFO preview: 1-6 cycles from RATE, height from DEPTH, current shape. */
+                unsigned cycles = 1U + (lfo_rate * 13U >> 8), amp = 5U + (lfo_depth * 26U >> 8), sh = lfo_shape;
+                int py = 0;
+                for (unsigned x = 0; x < 104; ++x) {
+                    unsigned n = x * cycles * 5U >> 1, p = n & 255U, s = p & 127U, q = s * (128 - s) >> 5;
+                    unsigned v = sh == 0 ? (p < 128 ? p * 2 : 511 - p * 2) : sh == 1 ? 255 - p : sh == 2 ? p
+                        : sh == 3 ? (p < 128 ? 255 : 0) : sh == 4 ? (p < 128 ? 128 + q : 128 - q)
+                        : (n >> 8) * 151U * 73U & 255U;
+                    int y = 80 - (((int)v - 128) * (int)amp >> 7);
+                    if (x) line(127 + (int)x, py, 128 + (int)x, y, AMBER);
+                    py = y;
+                }
+            }
             if (bar <= 100) { paint_fill(8, 102, 224, 6, PANEL); paint_fill(8, 102, bar * 224U / 100U, 6, AMBER); }
         }
     }
@@ -1419,7 +1438,7 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         plain_text(8, 72, !groove_arp_enabled(track) ? "OFF - TAP ARP TO ENABLE" : groove_arp_setting(track, 5) ? "ON - HOLD LATCHES YOUR CHORD" : "ON - HOLD KEYS TO PLAY");
         dim_text(8, 96, "SELECT TRACK  K1-K4 ADJUST");
         dim_text(8, 118, "RATE FOLLOWS BPM / MIDI CLOCK");
-        dim_text(8, 140, arp_page ? "RELEASE ALL KEYS FOR A NEW CHORD" : groove_pad_count(track) ? "DRUMS: RANGE / GATE UNAVAILABLE" : "UP / DOWN / UP-DOWN / RANDOM");
+        dim_text(8, 140, arp_page ? "RELEASE KEYS FOR NEW CHORD" : groove_pad_count(track) ? "DRUMS: NO RANGE / GATE" : "UP / DOWN / UP-DOWN / RANDOM");
         dim_text(8, 162, "ARP BOTH - SEQ 6/7: OUT PORT");
         accent_text(8, 180, arp_page ? "2/2 HOLD / MIDI  K6 PAGE" : "1/2 NOTES  K6 PAGE");
         static const char *const rates[] = {"1/4", "1/8", "1/16", "1/32"};
@@ -1482,12 +1501,12 @@ static __attribute__((noinline)) const char *performance_hint(unsigned visible, 
     unsigned role = groove_track_role(track);
     if (visible == STEPS && seq_page == 5) return "K1 IN: RECEIVE  K2 OUT: SEND";
     if (role == GROOVE_TRACK_OFF) return "TRACK OFF - KNOB BANK+PATCH, K2 ON";
-    if (!fm1_engine_output_level()) return "MASTER MUTED - TURN MASTER UP";
+    if (!fm1_engine_output_level()) return "MASTER MUTED";
     if (v->muted) return "TRACK MUTED - GLOBE / PAD TO UNMUTE";
     /* The engine already resolves the independent NORMAL / PLAY solo groups. */
     if (!v->audible) return "OTHER TRACK SOLO - GLOBE TO CHECK";
     if (!v->volume) return "TRACK LEVEL 0 - USE GLOBE / FADER";
-    if (writing && role == GROOVE_TRACK_PLAY) return "REC PROJECT TRACKS; LIVE NOT REC";
+    if (writing && role == GROOVE_TRACK_PLAY) return "LIVE TRACK NOT RECORDED";
     if (groove_midi_input_channel(smk37_performance_track(0))==
         groove_midi_input_channel(smk37_performance_track(1)))
         return "KEY/PAD SAME CH: KNOB BANK+SEQ";
@@ -1695,10 +1714,10 @@ static __attribute__((noinline, cold, minsize)) void draw_page_body(const struct
     }
     const char *hint = state_hint ? state_hint
                        : v->clock_mode && v->clock_state != GROOVE_CLOCK_LOCKED
-                           ? "WAIT MIDI CLOCK - SEQ SYNC: INT/MIDI"
-                       : writing && groove_sequence_count_in() ? "COUNT IN - RECORD ON NEXT BAR"
-                       : writing ? v->playing ? "LIVE REC - PLAY KEYS  REC TO FINISH"
-                                                             : "STEP REC - PLAY KEYS  REC TO FINISH"
+                           ? "WAITING FOR MIDI CLOCK"
+                       : writing && groove_sequence_count_in() ? "COUNT IN - REC ON NEXT BAR"
+                       : writing ? v->playing ? "LIVE REC - REC TO FINISH"
+                                                             : "STEP REC - REC TO FINISH"
                        : visible == OVERVIEW && (previous_buttons & BUTTON(HOME))
                            ? "K7 SOURCE  PARA PARAMETERS"
                        : visible == OVERVIEW ? routing
@@ -2148,7 +2167,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
     if ((controls->buttons & (BUTTON(HOME) | BUTTON(SAVE))) == (BUTTON(HOME) | BUTTON(SAVE)) &&
         (pressed & (BUTTON(HOME) | BUTTON(SAVE)))) {
         int r = groove_edit_undo();
-        announce(r ? "NOTHING TO UNDO / STOP REC FIRST" : "UNDO / REDO APPLIED", now + 2000U);
+        announce(r ? "NOTHING TO UNDO" : "UNDO / REDO APPLIED", now + 2000U);
         page = music_page;
         goto controls_done;
     }
@@ -2682,7 +2701,7 @@ void groove_screen_control(void)
     if (modes != panel_modes_seen) {
         announce((modes ^ panel_modes_seen) & 2U
             ? modes & 2U ? "PAD STEPS - KNOB BANK+NOTE REPEAT" : "PAD PLAY - KNOB BANK+NOTE REPEAT"
-            : modes & 1U ? "FADERS 5-8 - MOVE TO MATCH LEVEL" : "FADERS 1-4 - MOVE TO MATCH LEVEL", now + 1800U); panel_modes_seen = modes;
+            : modes & 1U ? "FADERS 5-8: MATCH LEVEL" : "FADERS 1-4: MATCH LEVEL", now + 1800U); panel_modes_seen = modes;
     }
     uint32_t feedback = smk37_fader_feedback();
     if (feedback != fader_feedback_seen && (feedback & (1U << 23))) {
@@ -2723,7 +2742,7 @@ void groove_screen_control(void)
         } else if (groove_midi_dropped() != health_output) {
             announce("MIDI OUT FULL", now + 2500U);
         } else if (adapted > health_adapted) {
-            announce("CPU GUARD - VOICES ADAPTED", now + 2500U);
+            announce("CPU GUARD", now + 2500U);
         }
         health_output = groove_midi_dropped();
         health_adapted = adapted;
@@ -2749,7 +2768,7 @@ void groove_screen_control(void)
     writing = groove_edit_recording();
     if (writing) cursor = groove_edit_cursor();
     unsigned error = groove_edit_error();
-    if (error && !notice) { announce(error == 1 ? "REC STOPPED: MIDI FULL" : "CHORD LIMIT - LAST NOTES KEPT", now + 2000U); }
+    if (error && !notice) { announce(error == 1 ? "REC STOPPED: MIDI FULL" : "CHORD LIMIT", now + 2000U); }
     struct groove_view transport;
     groove_get_view(track, cursor, &transport);
     cursor %= transport.sequence_length;

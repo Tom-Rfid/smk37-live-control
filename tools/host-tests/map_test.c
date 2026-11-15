@@ -73,6 +73,8 @@ int main(void){
   uint8_t patch[156]; groove_fm_copy(0,patch,NULL); unsigned w0=patch[142];
   knob(6,-2); groove_fm_copy(0,patch,NULL); CHECK(patch[142]==w0-2,"LIVE: K7 changes the DX7 LFO wave of T1");
   shot("05_live_wave");
+  groove_fm_edit(0,137,40); groove_fm_edit(0,139,90); knob(6,1); shot("05b_live_wave_fast");
+  knob(6,1); shot("05c_live_wave_sine"); knob(6,-2);
   sim_midi_capture(1); fader(1,100); wait(50);
   unsigned found=0,o; while((o=sim_midi_output())){ uint8_t *m=sim_file(); if((o&255)==3 && m[0]==0xB1 && m[1]==74 && m[2]==100) found=1; }
   CHECK(found,"LIVE: F2 sends CC74=100 on ch2");
