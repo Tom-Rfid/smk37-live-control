@@ -7,14 +7,15 @@ roles stay untouched everywhere else.
   faders act here; the last one moved is shown large with its value and a bar.
   Unassigned K1-K7 and F1-F4 do nothing on LIVE and show "-"; K8 stays MASTER.
   Keys keep playing; the last key or pad played is shown beside the title.
-- **`<`** or **BT held 1 s** (green progress bar): editing
+- **BT held 1 s** (green progress bar): editing
   (CONTROL MAP 1/2, LIVE SETUP 2/2; OCT-/OCT+ change page).
 - In CONTROL MAP, **K5** sets each assignment to **LIVE** (default: acts on the
   BT page only) or **ALL** (acts on every page except editing, replacing that
   control's normal role; the row shows "ALL"). Prefer ALL on controls you do not
   need for menu navigation (K1-K4 are used by most menus).
-- In editing, **`<`** or **BT** returns to LIVE. On LIVE, **BT** exits.
-  **PATCH** keeps its HOME role on both pages: it leaves to the track overview.
+- In editing, **BT** returns to LIVE. On LIVE, **BT** exits. OCT-/OCT+ change
+  the keys octave on LIVE (in editing they switch page).
+  **`<` and PATCH** keep their HOME role on both pages: they leave to the track overview.
 - On-screen hints name the physical buttons: `</PATCH` (HOME), `>` (SAVE),
   KNOB BANK (SHIFT), PARA (EDIT), CHORD (ENV), GLOBE (MIX), NOTE REPEAT
   (PAD/STEP), K5 (SELECT), K6 (PAGE), K7 (PRESETS).

@@ -23,6 +23,7 @@ static void knob(unsigned id,int d){ for(int i=0;i<(d<0?-d:d);++i){ sim_smk37(SM
 static void fader(unsigned id,unsigned v){ sim_smk37(SMK37_FADER,id,(int)v); wait(30); }
 static void row(unsigned r){ smk37_screen_map_select(r); wait(30); }
 unsigned groove_screen_web_context(void);
+int smk37_performance_octave(unsigned pad);
 static unsigned mode(void){ return smk37_screen_map_mode(); }
 int main(void){
   sim_boot(1); wait(300);
@@ -30,8 +31,8 @@ int main(void){
   /* ---- Navigation ---- */
   button(BT,100);  CHECK(mode()==1,"BT click opens LIVE");
   shot("01_live_empty");
-  button(HOME,80); CHECK(mode()==2,"HOME on LIVE opens editing");
-  button(HOME,80); CHECK(mode()==1,"HOME in editing returns to LIVE");
+  button(HOME,80); CHECK(mode()==0,"< on LIVE goes HOME (leaves LIVE)");
+  button(BT,100);  CHECK(mode()==1,"LIVE again");
   sim_smk37(SMK37_BUTTON,BT,1); wait(500);
   CHECK(mode()==1,"BT held 0.5 s: still LIVE (bar running)");
   shot("02_live_hold_bar");
@@ -43,7 +44,7 @@ int main(void){
   button(BT,100); button(PATCH,80); CHECK(mode()==0,"PATCH on LIVE goes HOME (leaves LIVE)");
   button(BT,100); button(BT,1200); button(PATCH,80); CHECK(mode()==0,"PATCH in editing goes HOME");
   /* ---- Assign in editing ---- */
-  button(BT,100); button(HOME,80);
+  button(BT,100); button(BT,1200);
   row(4); knob(1,2); knob(2,3);                       /* K5 REVERB T3 */
   row(6); knob(1,7); knob(2,1);                       /* K7 LFO WAVE T1 (DX7) */
   fader(1,40); fader(1,60);                           /* learn F2 */
@@ -92,6 +93,7 @@ int main(void){
   shot("08_live_unassigned");
   { struct groove_view w; groove_get_view(0,0,&w); unsigned p0=w.program;
     knob(2,1); groove_get_view(0,0,&w); CHECK(w.program!=p0,"LIVE: K3 changes the T1 sound"); shot("12_live_sound");
+    unsigned o0=smk37_performance_octave(0); button(5,80); CHECK(smk37_performance_octave(0)==(int)o0+1 && mode()==1,"LIVE: OCT+ raises the keys octave"); button(4,80);
     unsigned k0=smk37_screen_track(); knob(3,1); CHECK(smk37_screen_track()==k0+1 && mode()==1,"LIVE: K4 moves the keys to the next track, stays on LIVE");
     shot("13_live_keys"); knob(3,-1); }
   groove_get_view(2,0,&v); unsigned t3=v.volume;
@@ -103,7 +105,7 @@ int main(void){
     shot("10_live_cutoff"); }
   else printf("SKIP no 303 track\n");
   /* ---- LIVE SETUP ---- */
-  button(HOME,80); button(OCTDN,80);
+  button(BT,1200); button(OCTDN,80);
   knob(1,3); knob(0,1); knob(1,1);
   CHECK(smk37_setup[0]==3 && smk37_setup[1]==1,"LIVE SETUP velocity FIXED, faders JUMP");
   CHECK(groove_settings_radio_flags()&GROOVE_RADIO_ON,"Bluetooth on by default");
@@ -127,5 +129,6 @@ int main(void){
   CHECK(groove_screen_web_context()==src,"SOURCE: K2 changes the track mode, page stays briefly");
   shot("11_source_k2"); wait(300);
   CHECK(groove_screen_web_context()!=src,"SOURCE: back to the previous page 300 ms after K2");
+  button(PATCH,80); button(FX,80); wait(200); knob(0,2); shot("14_knob_hot"); wait(1000); shot("14b_knob_cold");
   printf("fails=%d\n",fails); return fails!=0;
 }

@@ -115,7 +115,9 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
             uint16_t *pixel = paint_pixels + (row - paint_top) * stride + first_col - paint_x;
             for (unsigned col = first_col; col < end_col; ++col) {
                 unsigned column = (col - x) / scale;
-                *pixel++ = column < 5U && (shape[column] & mask) ? color : background;
+                if (column < 5U && (shape[column] & mask)) *pixel = color;
+                else if (background != color) *pixel = background;
+                ++pixel;
             }
         }
     }
@@ -454,8 +456,13 @@ static void line(int x, int y, int end_x, int end_y, uint16_t color)
 #ifdef FM1_HOST_TEST
 static char web_knobs[4][2][16];
 #endif
+/* The K1-K4 cell being turned is drawn bold orange with an orange outline for 0.8 s. */
+static unsigned hot_col = 9;
+static uint32_t hot_until;
 static void knob(unsigned col, const char *label, const char *value, uint16_t color)
 {
+    unsigned hot = col == hot_col && (int32_t)(hot_until - frame_time) > 0;
+    if (hot) color = AMBER;
 #ifdef FM1_HOST_TEST
     if (col < 4) {
         memset(web_knobs[col], 0, sizeof web_knobs[col]);
@@ -467,7 +474,7 @@ static void knob(unsigned col, const char *label, const char *value, uint16_t co
 #endif
     if (paint_rendering && (paint_top >= 227 || paint_top + PAINT_ROWS <= 195)) return;
     uint32_t sig =
-        signature(signature(color, label, (unsigned)strlen(label)), value, (unsigned)strlen(value));
+        signature(signature(color + hot, label, (unsigned)strlen(label)), value, (unsigned)strlen(value));
     if (cache->foot_cache[col] == sig)
         return;
     cache->foot_cache[col] = sig;
@@ -475,7 +482,9 @@ static void knob(unsigned col, const char *label, const char *value, uint16_t co
     erase(x, 195, 54, 32);
     paint_fill(x, 195, 54, 2, color);
     plain_text(x, 200, label);
-    text(x, 212, value, strlen(value) <= 4 ? 2 : 1, color, BACK);
+    unsigned scale = strlen(value) <= 4 ? 2 : 1;
+    text(x, 212, value, scale, color, BACK);
+    if (hot) { text(x + 1, 212, value, scale, color, color); frame(x, 195, 54, 32, AMBER); }
 }
 static __attribute__((noinline)) void header(const struct groove_view *v)
 {
@@ -1042,7 +1051,12 @@ static __attribute__((minsize)) void map_value(unsigned control, char out[16], u
         uint8_t fx[4]; groove_effects_get(fx); value = fx[target - SMK37_MAP_REV_TIME];
     } else if (target == SMK37_MAP_TEMPO) value = v.tempo;
     else if (target == SMK37_MAP_CC) { value = (int)smk37_map_cc_value(control); max = 127; }
-    else if (target == SMK37_MAP_SOUND) value = v.program + 1;
+    else if (target == SMK37_MAP_SOUND) {
+        static const uint8_t counts[GROOVE_SOURCES] = {FM1_FM_PROGRAMS, 2, 1, 4, 1, 1}; /* sounds per engine */
+        unsigned count = counts[groove_source_type(t) % GROOVE_SOURCES];
+        decimal(out, v.program % count + 1, 1); strcat(out, "/"); decimal(out + strlen(out), count, 1);
+        *bar = v.program % count * 100U / count; return;
+    }
     else if (target == SMK37_MAP_KEYS) { out[0] = 'T'; out[1] = (char)('1' + track); out[2] = 0; return; }
     else if (target == SMK37_MAP_CUTOFF && groove_source_type(t) == GROOVE_303) {
         uint8_t tone[GROOVE_TONE_PARAMS]; groove_tone_copy(t, 0, tone); value = tone[BASS303_CUTOFF]; max = 127;
@@ -1059,7 +1073,7 @@ static __attribute__((noinline, minsize)) void draw_live(void)
         memset(cache->cell_cache, 0xff, sizeof cache->cell_cache);
         paint_fill(0, 0, 240, 240, GREY);
         text(8, 8, "LIVE CONTROL", 2, AMBER, GREY);
-        text(8, 229, "< OR HOLD BT: EDIT  BT/PATCH: EXIT", 1, AMBER, GREY);
+        text(8, 229, "HOLD BT: EDIT   BT OR </PATCH: EXIT", 1, AMBER, GREY);
     }
     /* Green progress bar while BT is held towards editing. */
     uint32_t since = smk37_bt_hold_since();
@@ -1121,7 +1135,7 @@ static __attribute__((noinline, minsize)) void draw_map(void)
         erase(0, 0, 240, 240);
         text(8, 8, map_page ? "LIVE SETUP 2/2" : "CONTROL MAP 1/2", 2, ACCENT, BACK);
         dim_text(8, 213, map_page ? "K1 ROW  K2 VALUE" : "K1 ROW K2 TYPE K3 TRK/CC K4 CH K5 ALL");
-        dim_text(8, 229, "> DEFAULT  OCT PAGE  < OR BT: LIVE");
+        dim_text(8, 229, "> DEFAULT  OCT PAGE  BT: LIVE");
     }
     char line[32];
     if (map_page) {
@@ -1274,7 +1288,7 @@ static __attribute__((noinline)) void effects_draw(void)
             small_number(44, 40, track + 1U, 1, ACCENT);
             plain_text(60, 40, source_names[frame_views[track].type]);
         }
-        dim_text(8, 64, "PAGE: TRACK / SHARED / DELAY");
+        dim_text(8, 64, "PAGE: TRACK/SHARED/DELAY");
     }
     static const char *const shared[4] = {"REV TIME", "DLY TIME", "FEEDBACK", "RETURN"};
     static const char *const local[4] = {"REV SEND", "DLY SEND", "TRK VOL", "ALL RET"};
@@ -1411,8 +1425,8 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         accent_text(8, 166, source_preview == groove_source_type(track) ? "CURRENT SOUND" : "NEW SOURCE RESETS TIMBRE");
         unsigned role = groove_track_role(track);
         plain_text(8, 184, "K2 TRACK:"); accent_text(80, 184, track_modes[role]);
-        static const char *const hints[] = {"PROJECT: FOLLOWS PROJECT", "LIVE: KEEP SOUND ON PROJECT LOAD", "OFF: TURN K2 LEFT TO ENABLE"};
-        dim_text(8, 198, source_preview == groove_source_type(track) ? hints[role] : "DRUM / PITCH CHANGE CLEARS STEPS");
+        static const char *const hints[] = {"PROJECT: FOLLOWS PROJECT", "LIVE: SOUND KEPT ON LOAD", "OFF: TURN K2 LEFT"};
+        dim_text(8, 198, source_preview == groove_source_type(track) ? hints[role] : "CLEARS STEPS");
         color_text(8, 216, source_result ? "NOT ENOUGH MEMORY - RETRY" : "K1 / PADS 1-6 CHOOSE", source_result ? AMBER : TEXT);
         dim_text(8, 231, role == GROOVE_TRACK_OFF ? "K2 ENABLE TRACK  </PATCH BACK" : "> APPLY SOUND  </PATCH BACK");
     } else if (visible == ACTIONS) {
@@ -1437,11 +1451,11 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         text(8, 40, "ARPEGGIATOR", 2, ACCENT, BACK);
         text(184, 40, "T", 2, colors[track], BACK);
         number(198, 40, track + 1, 1, 2, colors[track], BACK);
-        plain_text(8, 72, !groove_arp_enabled(track) ? "OFF - TAP ARP TO ENABLE" : groove_arp_setting(track, 5) ? "ON - HOLD LATCHES YOUR CHORD" : "ON - HOLD KEYS TO PLAY");
+        plain_text(8, 72, !groove_arp_enabled(track) ? "OFF - TAP ARP TO ENABLE" : groove_arp_setting(track, 5) ? "HOLD LATCHES CHORD" : "ON - HOLD KEYS TO PLAY");
         dim_text(8, 96, "SELECT TRACK  K1-K4 ADJUST");
-        dim_text(8, 118, "RATE FOLLOWS BPM / MIDI CLOCK");
-        dim_text(8, 140, arp_page ? "RELEASE KEYS FOR NEW CHORD" : groove_pad_count(track) ? "DRUMS: NO RANGE / GATE" : "UP / DOWN / UP-DOWN / RANDOM");
-        dim_text(8, 162, "ARP BOTH - SEQ 6/7: OUT PORT");
+        dim_text(8, 118, "RATE FOLLOWS BPM");
+        dim_text(8, 140, arp_page ? "RELEASE KEYS" : groove_pad_count(track) ? "DRUMS: NO RANGE / GATE" : "UP/DOWN/UP-DOWN/RANDOM");
+        dim_text(8, 162, "ARP: SEQ 6/7 OUT PORT");
         accent_text(8, 180, arp_page ? "2/2 HOLD / MIDI  K6 PAGE" : "1/2 NOTES  K6 PAGE");
         static const char *const rates[] = {"1/4", "1/8", "1/16", "1/32"};
         static const char *const modes[] = {"UP", "DOWN", "UP-DN", "RANDOM"};
@@ -1502,16 +1516,16 @@ static __attribute__((noinline)) const char *performance_hint(unsigned visible, 
     const struct groove_view *v = &views[track];
     unsigned role = groove_track_role(track);
     if (visible == STEPS && seq_page == 5) return "K1 IN: RECEIVE  K2 OUT: SEND";
-    if (role == GROOVE_TRACK_OFF) return "TRACK OFF - KNOB BANK+PATCH, K2 ON";
+    if (role == GROOVE_TRACK_OFF) return "TRACK OFF: KNOB BANK+PATCH";
     if (!fm1_engine_output_level()) return "MASTER MUTED";
-    if (v->muted) return "TRACK MUTED - GLOBE / PAD TO UNMUTE";
+    if (v->muted) return "TRACK MUTED";
     /* The engine already resolves the independent NORMAL / PLAY solo groups. */
-    if (!v->audible) return "OTHER TRACK SOLO - GLOBE TO CHECK";
-    if (!v->volume) return "TRACK LEVEL 0 - USE GLOBE / FADER";
+    if (!v->audible) return "OTHER TRACK SOLO";
+    if (!v->volume) return "TRACK LEVEL 0";
     if (writing && role == GROOVE_TRACK_PLAY) return "LIVE TRACK NOT RECORDED";
     if (groove_midi_input_channel(smk37_performance_track(0))==
         groove_midi_input_channel(smk37_performance_track(1)))
-        return "KEY/PAD SAME CH: KNOB BANK+SEQ";
+        return "KEY/PAD SAME CHANNEL";
     return NULL;
 }
 static void hint_draw(const char *hint)
@@ -1742,7 +1756,7 @@ static void draw_page(const struct fm1_ble_status *ble)
         text(8, 198, "KNOB BANK SHORTCUTS", 1, ACCENT, PANEL);
         text(8, 209, "PADS 1-8 TRACK   PADS 9-16 MUTE", 1, TEXT, PANEL);
         text(8, 220, "CHORD LFO  PATCH SOURCE  SEQ MIDI", 1, TEXT, PANEL);
-        text(8, 231, "NOTE REPEAT STEPS  RELEASE TO RETURN", 1, DIM, PANEL);
+        text(8, 231, "NOTE REPEAT: STEP EDIT", 1, DIM, PANEL);
     }
     if (boot_active || page == MAP_PAGE || (paint_rendering && paint_top >= 30)) return;
     uint32_t since = 0;
@@ -2100,6 +2114,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
 {
     uint32_t pressed = controls->buttons & ~previous_buttons;
     uint32_t old_keys = previous_keys, key_down = controls->keys & ~old_keys;
+    for (unsigned c = 0; c < 4; ++c) if (controls->encoders[2 + c]) { hot_col = c; hot_until = now + 800U; }
     unsigned play_handled = 0;
     previous_buttons = controls->buttons;
     previous_keys = controls->keys;
@@ -2264,7 +2279,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         if (!release_keys()) return 0;
         blocked_keys |= controls->keys;
         groove_arp_set(track, !groove_arp_enabled(track));
-        announce(groove_arp_enabled(track) ? "ARP ON / HOLD ARP FOR SETTINGS" : "ARP OFF / LIVE KEYS", now + 2000U);
+        announce(groove_arp_enabled(track) ? "ARP ON" : "ARP OFF", now + 2000U);
     }
     if (pressed & BUTTON(REC)) {
         writing ^= 1U;
@@ -2276,7 +2291,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         }
         goto controls_done;
     }
-    if (page != STEPS && page != ACTIONS && page != MAP_PAGE)
+    if (page != STEPS && page != ACTIONS && !(page == MAP_PAGE && map_edit))
         {
             int next=clamp(octave + !!(pressed & BUTTON(OCT_UP)) - !!(pressed & BUTTON(OCT_DOWN)), -2, 2);
             if(next!=octave) {octave=next;groove_settings_panel_changed();}
@@ -2405,7 +2420,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                 if (!post(0xff, 0, 0, 1)) return 0;
                 memset(key_note, 0xff, sizeof key_note); project_keys = 0; writing = 0; page = OVERVIEW;
             }
-            announce(r == -3 ? "COPY A STEP/PAGE/TRACK FIRST"
+            announce(r == -3 ? "COPY FIRST"
                 : r == -2 ? "CHORD / LOCK TABLE FULL" : r ? "UNAVAILABLE"
                 : operation == 2 ? "STEP COPIED"
                 : operation == 3 ? "PAGE COPIED"
@@ -2702,7 +2717,7 @@ void groove_screen_control(void)
     unsigned modes = smk37_fader_bank() | (smk37_pad_steps() << 1);
     if (modes != panel_modes_seen) {
         announce((modes ^ panel_modes_seen) & 2U
-            ? modes & 2U ? "PAD STEPS - KNOB BANK+NOTE REPEAT" : "PAD PLAY - KNOB BANK+NOTE REPEAT"
+            ? modes & 2U ? "PAD STEPS" : "PAD PLAY"
             : modes & 1U ? "FADERS 5-8: MATCH LEVEL" : "FADERS 1-4: MATCH LEVEL", now + 1800U); panel_modes_seen = modes;
     }
     uint32_t feedback = smk37_fader_feedback();
@@ -2877,8 +2892,8 @@ __attribute__((noinline, cold, minsize)) void smk37_screen_pad_mode(unsigned ste
     action_confirm=ble_forget=project_reload=0;
     page=music_page=steps?STEPS:OVERVIEW;
     if(steps) {seq_page=0;writing=0;groove_edit_record(0,track,cursor);}
-    notice=steps?"PAD STEPS - KNOB BANK+NOTE REPEAT":
-        pad_focus?"PAD READY - PARA / CHORD / FX":"KEY READY - PARA / CHORD / FX";
+    notice=steps?"PAD STEPS":
+        pad_focus?"PAD READY":"KEY READY";
     notice_until=fm1_millis()+2000U;
     cache->shown_page=~0U;
 }
