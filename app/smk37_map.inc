@@ -79,7 +79,8 @@ static void map_apply(unsigned control, int delta, int absolute)
 int smk37_map_encoder(unsigned id, int delta)
 {
     if (id >= SMK37_MAP_KNOBS || smk37_screen_map_mode() != 1) return 0;
-    if (!map[id].target) return id < 7; /* LIVE: unassigned K1-K7 do nothing; K8 stays MASTER */
+    /* LIVE: unassigned K1-K7 do nothing but show "-"; K8 stays MASTER. */
+    if (!map[id].target) { if (id < 7) { smk37_map_last = (uint8_t)id; ++smk37_map_moves; } return id < 7; }
     map_apply(id, delta << smk37_setup[SMK37_SETUP_SPEED], -1);
     return 1;
 }
@@ -92,8 +93,10 @@ int smk37_map_fader(unsigned id, unsigned value)
     int previous = map_fader_last[id];
     unsigned seen = map_fader_seen & bit;
     map_fader_last[id] = (uint8_t)value; map_fader_seen |= (uint8_t)bit;
-    if (target == SMK37_MAP_DEFAULT || target == SMK37_MAP_LEVEL || smk37_screen_map_mode() != 1) return 0;
+    if (target == SMK37_MAP_LEVEL || smk37_screen_map_mode() != 1) return 0;
     if (seen && (int)value != previous) {
+        /* LIVE: an unassigned fader does nothing but shows "-". */
+        if (!target) { smk37_map_last = (uint8_t)control; ++smk37_map_moves; return 1; }
         unsigned absolute = target == SMK37_MAP_REVERB || target == SMK37_MAP_DELAY || target == SMK37_MAP_CC;
         map_apply(control, (int)value - previous, absolute ? (int)value : -1);
     }

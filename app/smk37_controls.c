@@ -22,7 +22,7 @@ static uint8_t wheel_last_channel[2];
 /* BT button: opens the CONTROL MAP page (the Bluetooth page was removed). */
 /* BT: a click opens the LIVE page (assignments play only there); on LIVE,
  * a 2 s hold opens editing and a click exits; in editing a click returns. */
-enum { BT_BUTTON = 11, BT_HOLD_MS = 2000 };
+enum { BT_BUTTON = 11, BT_HOLD_MS = 1000 };
 static uint8_t bt_down, bt_used;
 static uint32_t bt_ms;
 uint32_t smk37_bt_hold_since(void) { return bt_down && !bt_used ? bt_ms | 1U : 0; }

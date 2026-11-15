@@ -7,6 +7,7 @@
 #include "smk37_controls.h"
 #include "smk37_map.h"
 #include "instrument.h"
+#include "bass303.h"
 int groove_fm_copy(unsigned track, uint8_t patch[156], struct groove_fm_controls *controls);
 void sim_boot(unsigned); const float *sim_render(void); int sim_smk37(unsigned,unsigned,int);
 const uint16_t *sim_pixels(void); void sim_midi_capture(unsigned); unsigned sim_midi_output(void); uint8_t *sim_file(void);
@@ -30,10 +31,10 @@ int main(void){
   shot("01_live_empty");
   button(HOME,80); CHECK(mode()==2,"HOME on LIVE opens editing");
   button(HOME,80); CHECK(mode()==1,"HOME in editing returns to LIVE");
-  sim_smk37(SMK37_BUTTON,BT,1); wait(1000);
-  CHECK(mode()==1,"BT held 1 s: still LIVE (bar running)");
+  sim_smk37(SMK37_BUTTON,BT,1); wait(500);
+  CHECK(mode()==1,"BT held 0.5 s: still LIVE (bar running)");
   shot("02_live_hold_bar");
-  wait(1100); CHECK(mode()==2,"BT held 2 s opens editing");
+  wait(600); CHECK(mode()==2,"BT held 1 s opens editing");
   sim_smk37(SMK37_BUTTON,BT,0); wait(80);
   CHECK(mode()==2,"releasing the long BT press stays in editing");
   button(BT,100);  CHECK(mode()==1,"BT click in editing returns to LIVE");
@@ -46,6 +47,8 @@ int main(void){
   CHECK(mode()==2,"still editing after fader learn");
   knob(1,14); knob(2,74); knob(3,1);                  /* F2 MIDI CC 74 ch2 */
   row(8); knob(1,1); knob(2,5);                       /* F1 LEVEL T5 */
+  unsigned bass=8; for(unsigned t=0;t<8;++t) if(bass==8 && groove_source_type(t)==GROOVE_303) bass=t;
+  row(1); knob(1,4); knob(2,(int)bass+1);             /* K2 CUTOFF on the 303 track */
   CHECK(smk37_map_get(4)->target==SMK37_MAP_REVERB && smk37_map_get(4)->track==3,"K5 = REVERB T3");
   CHECK(smk37_map_get(9)->target==SMK37_MAP_CC && smk37_map_get(9)->cc==74 && smk37_map_get(9)->channel==1,"F2 = MIDI CC 74 CH2 (learned)");
   CHECK(smk37_map_get(8)->target==SMK37_MAP_LEVEL && smk37_map_get(8)->track==5,"F1 = LEVEL T5");
@@ -74,10 +77,23 @@ int main(void){
   CHECK(smk37_map_last==8,"LIVE readout follows F1");
   uint8_t before[156]; groove_fm_copy(0,before,NULL);
   knob(0,3); groove_fm_copy(0,patch,NULL); CHECK(!memcmp(before,patch,156),"LIVE: unassigned K1 does nothing");
+  CHECK(smk37_map_last==0,"LIVE: unassigned K1 shows -");
+  shot("08_live_unassigned");
+  groove_get_view(2,0,&v); unsigned t3=v.volume;
+  fader(2,30); fader(2,70); groove_get_view(2,0,&v);
+  CHECK(v.volume==t3 && smk37_map_last==10,"LIVE: unassigned F3 does nothing and shows -");
+  sim_smk37(SMK37_KEY,13,90); wait(60); shot("09_live_note"); sim_smk37(SMK37_KEY,13,0); wait(40);
+  if(bass<8){ uint8_t tone[GROOVE_TONE_PARAMS]; groove_tone_copy(bass,0,tone); unsigned c0=tone[BASS303_CUTOFF];
+    knob(1,-5); groove_tone_copy(bass,0,tone); CHECK(tone[BASS303_CUTOFF]==c0-5,"LIVE: K2 lowers the 303 cutoff");
+    shot("10_live_cutoff"); }
+  else printf("SKIP no 303 track\n");
   /* ---- LIVE SETUP ---- */
   button(HOME,80); button(OCTDN,80);
   knob(1,3); knob(0,1); knob(1,1);
   CHECK(smk37_setup[0]==3 && smk37_setup[1]==1,"LIVE SETUP velocity FIXED, faders JUMP");
+  CHECK(groove_settings_radio_flags()&GROOVE_RADIO_ON,"Bluetooth on by default");
+  knob(0,5); knob(1,-1);
+  CHECK(!(groove_settings_radio_flags()&GROOVE_RADIO_ON),"LIVE SETUP: BLUETOOTH OFF");
   shot("07_setup");
   button(BT,100); button(BT,100); CHECK(mode()==0,"exit");
   sim_midi_capture(1); sim_smk37(SMK37_KEY,12,30); wait(40); sim_smk37(SMK37_KEY,12,0); wait(40);
@@ -87,6 +103,7 @@ int main(void){
   /* ---- Persistence ---- */
   wait(4000); sim_boot(0); wait(1500);
   CHECK(smk37_map_get(4)->target==SMK37_MAP_REVERB && smk37_map_get(9)->cc==74 && smk37_setup[0]==3,"assignments and LIVE SETUP survive reboot");
+  CHECK(!(groove_settings_radio_flags()&GROOVE_RADIO_ON),"Bluetooth OFF survives reboot");
   button(BT,100); CHECK(mode()==1,"BT opens LIVE after reboot");
   printf("fails=%d\n",fails); return fails!=0;
 }

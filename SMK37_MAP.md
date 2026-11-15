@@ -5,14 +5,16 @@ roles stay untouched everywhere else.
 
 - **BT click**: opens **LIVE CONTROL** (grey, orange text). Assigned knobs and
   faders act here; the last one moved is shown large with its value and a bar.
-  Unassigned K1-K7 do nothing on LIVE; K8 stays MASTER. Keys keep playing.
-- **HOME** (`<` or PATCH) or **BT held 2 s** (green progress bar): editing
+  Unassigned K1-K7 and F1-F4 do nothing on LIVE and show "-"; K8 stays MASTER.
+  Keys keep playing; the last key or pad played is shown beside the title.
+  LFO targets also draw the current LFO shape.
+- **HOME** (`<` or PATCH) or **BT held 1 s** (green progress bar): editing
   (CONTROL MAP 1/2, LIVE SETUP 2/2; OCT-/OCT+ change page).
 - In editing, **HOME** or **BT** returns to LIVE. On LIVE, **BT** exits.
 
 This build removes the BLUETOOTH settings page, the DX7 PATCH NAME page and the
-startup animation, and size-optimises the LCD transfer functions: the V01 app
-image had only 29 bytes of free Flash.
+startup animation and the BLE stage timer, and size-optimises the LCD transfer
+functions: the V01 app image had only 29 bytes of free Flash (this build: 29).
 
 Each of the twelve controls, K1–K8 and F1–F4, can keep its normal behaviour
 (`DEFAULT`) or drive one target:
@@ -21,7 +23,7 @@ Each of the twelve controls, K1–K8 and F1–F4, can keep its normal behaviour
 |---|---|---|
 | LEVEL | track | absolute, with pickup (or JUMP) |
 | REVERB / DELAY | track send | absolute 0–100 % |
-| CUTOFF | track filter | follows motion |
+| CUTOFF | track filter (BASS 303 only; other engines show "303 ONLY") | follows motion |
 | LFO RATE / LFO DEPTH / LFO WAVE | track LFO (DX7: SPEED, PMD, WAVE TRI/SAW-/SAW+/SQR/SINE/S&H; others: rate, depth, TRI/SQR/UP/DOWN) | follows motion |
 | FM FDBK | DX7 operator feedback | follows motion |
 | REV TIME / DLY TIME / DLY FDBK / FX RETURN | shared effects | follows motion |
@@ -31,8 +33,9 @@ Each of the twelve controls, K1–K8 and F1–F4, can keep its normal behaviour
 There is no chorus effect in the SMK37 Open engine.
 
 Page 2/2 **LIVE SETUP** (BT again, or OCT-/OCT+): VELOCITY NORMAL/SOFT/HARD/FIXED 100
-(keys and pads), FADERS PICKUP/JUMP, KNOB SPEED X1/X2/X4 (assigned knobs). K1 row,
-K2 value, SAVE default. ACTIONS lists CONTROL MAP and LIVE SETUP.
+(keys and pads), FADERS PICKUP/JUMP, KNOB SPEED X1/X2/X4 (assigned knobs),
+BLUETOOTH ON/OFF (stored with the device settings; OFF disables Bluetooth audio
+and MIDI). K1 row, K2 value, SAVE default.
 
 Tracks are T1–T8 or `SELECTED TRACK` (follows the focused track). MIDI CC is
 sent on the enabled MIDI output ports only; it does not reach the internal

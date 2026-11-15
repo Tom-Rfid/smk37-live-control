@@ -149,7 +149,7 @@ static const char *const source_names[] = {"DX7 FM", "BASS 303", "DRUM 808", "PS
 static const char *const actions[] = {"STEP DETAILS", "RHYTHM / RECORD", "COPY STEP", "COPY PAGE", "COPY TRACK",
     "PASTE STEP", "PASTE PAGE", "PASTE TRACK", "CLEAR STEP", "CLEAR PAGE", "CLEAR TRACK",
     "REPEAT TO 32", "REPEAT TO 48", "REPEAT TO 64", "UNDO / REDO", "COPY TIMBRE", "PASTE TIMBRE",
-    "CONTROL MAP", "LIVE SETUP", "STOP ALL / REWIND"};
+    "STOP ALL / REWIND"}; /* CONTROL MAP / LIVE SETUP: BT, then < or hold BT */
 enum { ACTION_COUNT = sizeof actions / sizeof actions[0] };
 static unsigned source_preview, action, action_confirm, tone_clip_ready;
 static struct groove_preset tone_clip;
@@ -161,7 +161,9 @@ static unsigned seq_page, arp_page;
 static unsigned shift_visible;
 static unsigned panel_modes_seen;
 static uint32_t fader_feedback_seen;
-static unsigned boot_active, boot_phase;
+/* Boot logo removed (Flash space): boot_active is a constant 0. */
+enum { boot_active = 0 };
+static unsigned boot_phase;
 static uint32_t boot_started;
 static const char *const seq_pages[] = {"1/7 BASIC", "2/7 STEP DETAILS", "3/7 RHYTHM/REC", "4/7 LOCKS", "5/7 SYNC / LOOP", "6/7 MIDI TRACK", "7/7 MIDI OUTPUT"};
 /* Keep input and output channels together; output switches are global. */
@@ -202,8 +204,7 @@ static uint8_t encoder_speed[7];
 static unsigned map_row, map_page, setup_row, map_edit;
 static unsigned glo_down, glo_used, ble_device, ble_was_linked, ble_view, ble_action;
 static int ble_result, source_result;
-static unsigned ble_forget, ble_stage, ble_seconds;
-static uint32_t ble_stage_since;
+static unsigned ble_forget;
 static uint32_t health_output;
 static uint32_t health_at, health_underruns, health_dropped, health_adapted, health_dma;
 static int project_result;
@@ -993,7 +994,7 @@ static volatile uint8_t keep_ble_host;
  * image has little free Flash. */
 enum { GREY = 0x39e7 };
 /* "K5 REVERB", then with detail " T3" / " SEL" / " 074/02" (CC/channel). */
-static __attribute__((noinline)) void map_label(unsigned i, char *p, unsigned detail)
+static __attribute__((noinline, minsize)) void map_label(unsigned i, char *p, unsigned detail)
 {
     const struct smk37_map_entry *e = smk37_map_get(i);
     *p++ = i < SMK37_MAP_KNOBS ? 'K' : 'F'; *p++ = (char)('1' + i % SMK37_MAP_KNOBS); *p++ = ' ';
@@ -1007,13 +1008,15 @@ static __attribute__((noinline)) void map_label(unsigned i, char *p, unsigned de
     else if (!e->track) strcpy(p, " SEL");
     else { p[0] = ' '; p[1] = 'T'; p[2] = (char)('0' + e->track); p[3] = 0; }
 }
-/* LIVE readout of one assignment: value text and 0..100 bar (255: none). */
-static void map_value(unsigned control, char out[16], unsigned *bar)
+/* LIVE readout of one assignment: value text and 0..100 bar (255: none).
+ * live_wave: LFO shape to draw (DX7 order TRI SAWDN SAWUP SQR SINE S&H), 255 none. */
+static uint8_t live_wave, live_note; /* live_note: last note + 1, 0 none */
+static __attribute__((minsize)) void map_value(unsigned control, char out[16], unsigned *bar)
 {
     const struct smk37_map_entry *e = smk37_map_get(control);
     unsigned target = e->target, t = e->track ? e->track - 1U : track;
     int value = -1, max = 0;
-    *bar = 255; out[0] = 0;
+    *bar = 255; out[0] = 0; live_wave = 255;
     struct groove_view v; groove_get_view(t, 0, &v);
     if (target == SMK37_MAP_LEVEL) { value = v.volume; max = 127; }
     else if (target == SMK37_MAP_REVERB || target == SMK37_MAP_DELAY) {
@@ -1023,22 +1026,26 @@ static void map_value(unsigned control, char out[16], unsigned *bar)
         unsigned k = target - SMK37_MAP_LFO_RATE, dx7 = groove_source_type(t) == GROOVE_DX7;
         uint8_t lfo[4];
         if (dx7) { groove_fm_copy(t, frame_patch, NULL);
-            static const uint8_t at[4] = {137, 139, 142, 135}; value = frame_patch[at[k]]; max = k == 3 ? 7 : 99; }
-        else if (k < 3) { groove_lfo_copy(t, lfo); value = lfo[k == 2 ? 3 : k]; max = 100; }
+            static const uint8_t at[4] = {137, 139, 142, 135}; value = frame_patch[at[k]]; max = k == 3 ? 7 : 99;
+            if (k < 3) live_wave = (uint8_t)(frame_patch[142] % 6); }
+        else if (k < 3) { groove_lfo_copy(t, lfo); value = lfo[k == 2 ? 3 : k]; max = 100;
+            static const uint8_t shape[4] = {0, 3, 2, 1}; live_wave = shape[lfo[3] % 4]; }
         if (k == 2 && value >= 0) {
-            static const char *const dx7w[] = {"TRI", "SAW DN", "SAW UP", "SQUARE", "SINE", "S&H"};
-            static const char *const lfow[] = {"TRI", "SQUARE", "SAW UP", "SAW DN"};
-            strcpy(out, dx7 ? dx7w[value % 6] : lfow[value % 4]); return;
+            static const char *const waves[] = {"TRI", "SAW DN", "SAW UP", "SQUARE", "SINE", "S&H"};
+            strcpy(out, waves[live_wave]); return;
         }
     } else if (target >= SMK37_MAP_REV_TIME && target <= SMK37_MAP_FX_RETURN) {
         uint8_t fx[4]; groove_effects_get(fx); value = fx[target - SMK37_MAP_REV_TIME];
     } else if (target == SMK37_MAP_TEMPO) value = v.tempo;
     else if (target == SMK37_MAP_CC) { value = (int)smk37_map_cc_value(control); max = 127; }
-    if (value < 0) { strcpy(out, target == SMK37_MAP_CUTOFF ? "MOVED" : "--"); return; }
+    else if (target == SMK37_MAP_CUTOFF && groove_source_type(t) == GROOVE_303) {
+        uint8_t tone[GROOVE_TONE_PARAMS]; groove_tone_copy(t, 0, tone); value = tone[BASS303_CUTOFF]; max = 127;
+    }
+    if (value < 0) { strcpy(out, target == SMK37_MAP_CUTOFF ? "303 ONLY" : "-"); return; }
     decimal(out, value, 1);
     if (max) *bar = (unsigned)(value * 100 / max);
 }
-static __attribute__((noinline)) void draw_live(void)
+static __attribute__((noinline, minsize)) void draw_live(void)
 {
     if (cache->title_cache != 9) {
         cache->title_cache = 9;
@@ -1046,29 +1053,51 @@ static __attribute__((noinline)) void draw_live(void)
         memset(cache->cell_cache, 0xff, sizeof cache->cell_cache);
         paint_fill(0, 0, 240, 240, GREY);
         text(8, 8, "LIVE CONTROL", 2, AMBER, GREY);
-        text(8, 213, "< OR HOLD BT 2S: EDIT", 1, AMBER, GREY);
-        text(8, 229, "BT: EXIT", 1, AMBER, GREY);
+        text(8, 229, "< OR HOLD BT 1S: EDIT   BT: EXIT", 1, AMBER, GREY);
     }
     /* Green progress bar while BT is held towards editing. */
     uint32_t since = smk37_bt_hold_since();
-    unsigned width = since ? (unsigned)clamp((int)(frame_time - since), 0, 2000) * 224U / 2000U : 0;
-    if (cache->hold_cache != width) {
-        cache->hold_cache = width;
+    unsigned width = since ? (unsigned)clamp((int)(frame_time - since), 0, 1000) * 224U / 1000U : 0;
+    char label[32], value[16];
+    /* Hold bar, and the last key or pad played beside the title. */
+    if (cache->hold_cache != width + live_note * 256U) {
+        cache->hold_cache = width + live_note * 256U;
         paint_fill(8, 30, 224, 3, GREY);
         if (width) paint_fill(8, 30, width, 3, GREEN);
+        paint_fill(176, 8, 60, 14, GREY);
+        if (live_note) { note_name(live_note - 1U, label); text(176, 8, label, 2, TEXT, GREY); }
     }
-    char line[32], value[16];
     unsigned last = smk37_map_last, bar = 255;
     if (last < SMK37_MAP_CONTROLS) map_value(last, value, &bar); else strcpy(value, "");
-    uint32_t sig = signature(last * 977U + bar, value, (unsigned)strlen(value));
+    uint32_t sig = signature(last * 977U + bar + live_wave * 131U, value, (unsigned)strlen(value));
     if (cache->cell_cache[1][0] != sig) {
         cache->cell_cache[1][0] = sig;
         paint_fill(0, 40, 240, 72, GREY);
-        if (last >= SMK37_MAP_CONTROLS) text(8, 60, "TURN A KNOB / FADER", 1, AMBER, GREY);
+        if (last >= SMK37_MAP_CONTROLS) text(8, 60, "MOVE A CONTROL", 1, AMBER, GREY);
         else {
-            map_label(last, line, 1);
-            text(8, 42, line, 2, AMBER, GREY);
-            text(8, 66, value, 4, AMBER, GREY);
+            map_label(last, label, smk37_map_get(last)->target != 0);
+            text(8, 42, label, 2, AMBER, GREY);
+            text(8, 66, value, live_wave < 6 ? 3 : 4, AMBER, GREY);
+            if (live_wave < 6) {
+                /* LFO shape, 2 cycles: points x<<4|y on a 16x16 grid, 0xff ends. */
+                static const uint8_t shapes[] = {
+                    0x0f, 0x40, 0x8f, 0xc0, 0xfb, 0xff,                         /* TRI */
+                    0x00, 0x7f, 0x70, 0xff, 0xff,                               /* SAW DN */
+                    0x0f, 0x70, 0x7f, 0xf0, 0xff,                               /* SAW UP */
+                    0x00, 0x40, 0x4f, 0x8f, 0x80, 0xc0, 0xcf, 0xff, 0xff,       /* SQUARE */
+                    0x08, 0x13, 0x20, 0x33, 0x48, 0x5d, 0x6f, 0x7d, 0x88,
+                    0x93, 0xa0, 0xb3, 0xc8, 0xdd, 0xef, 0xfd, 0xff,             /* SINE */
+                    0x0a, 0x3a, 0x32, 0x62, 0x6d, 0x9d, 0x95, 0xc5, 0xcb, 0xfb, 0xff /* S&H */
+                };
+                const uint8_t *q = shapes;
+                for (unsigned n = live_wave; n; --n) while (*q++ != 0xff) {}
+                int px = -1, py = 0;
+                for (; *q != 0xff; ++q) {
+                    int x = 150 + (*q >> 4) * 5, y = 66 + (*q & 15) * 2;
+                    if (px >= 0) line(px, py, x, y, AMBER);
+                    px = x; py = y;
+                }
+            }
             if (bar <= 100) { paint_fill(8, 102, 224, 6, PANEL); paint_fill(8, 102, bar * 224U / 100U, 6, AMBER); }
         }
     }
@@ -1077,13 +1106,13 @@ static __attribute__((noinline)) void draw_live(void)
         uint32_t row = signature(i == last, e, sizeof *e);
         if (cache->tile_cache[i] == row) continue;
         cache->tile_cache[i] = row;
-        map_label(i, line, 0);
+        map_label(i, label, 0);
         unsigned x = i < 6 ? 8 : 124, y = 120 + (i % 6) * 14;
         paint_fill(x, y, 112, 10, GREY);
-        text(x, y + 1, line, 1, i == last ? TEXT : AMBER, GREY);
+        text(x, y + 1, label, 1, i == last ? TEXT : AMBER, GREY);
     }
 }
-static __attribute__((noinline)) void draw_map(void)
+static __attribute__((noinline, minsize)) void draw_map(void)
 {
     if (cache->title_cache != 1U + map_page) {
         cache->hold_cache = ~0U;
@@ -1096,12 +1125,14 @@ static __attribute__((noinline)) void draw_map(void)
     }
     char line[32];
     if (map_page) {
-        static const char *const rows[SMK37_SETUP_ROWS] = {"VELOCITY   ", "FADERS     ", "KNOB SPEED "};
-        static const char *const values[] = {"NORMAL", "SOFT", "HARD", "FIXED 100", "PICKUP", "JUMP", "X1", "X2", "X4"};
-        static const uint8_t first[SMK37_SETUP_ROWS] = {0, 4, 6};
-        for (unsigned i = 0; i < SMK37_SETUP_ROWS; ++i) {
+        /* Row 4, BLUETOOTH, lives in the device settings (radio flags). */
+        static const char *const rows[] = {"VELOCITY   ", "FADERS     ", "KNOB SPEED ", "BLUETOOTH  "};
+        static const char *const values[] = {"NORMAL", "SOFT", "HARD", "FIXED 100", "PICKUP", "JUMP", "X1", "X2", "X4", "OFF", "ON"};
+        static const uint8_t first[] = {0, 4, 6, 9};
+        uint8_t now[4]; memcpy(now, smk37_setup, 3); now[3] = groove_settings_radio_flags() & GROOVE_RADIO_ON;
+        for (unsigned i = 0; i < 4; ++i) {
             line[0] = i == setup_row ? '>' : ' ';
-            strcpy(line + 1, rows[i]); strcat(line, values[first[i] + smk37_setup[i]]);
+            strcpy(line + 1, rows[i]); strcat(line, values[first[i] + now[i]]);
             radio_line(i, 48 + i * 22, line, i == setup_row ? ACCENT : TEXT);
         }
         return;
@@ -1112,7 +1143,7 @@ static __attribute__((noinline)) void draw_map(void)
         radio_line(i, 40 + i * 14, line, i == map_row ? ACCENT : e->target ? TEXT : DIM);
     }
 }
-static __attribute__((noinline)) void map_control(const struct fm1_controls *controls, uint32_t pressed)
+static __attribute__((noinline, minsize)) void map_control(const struct fm1_controls *controls, uint32_t pressed)
 {
     if (keep_ble_host) {
         struct fm1_ble_device device; struct fm1_bluetooth_status radio;
@@ -1123,7 +1154,9 @@ static __attribute__((noinline)) void map_control(const struct fm1_controls *con
     if (pressed & (BUTTON(OCT_DOWN) | BUTTON(OCT_UP))) { map_page ^= 1U; return; }
     int rows = controls->encoders[2] + controls->encoders[6];
     if (map_page) {
-        setup_row = (unsigned)clamp((int)setup_row + rows, 0, SMK37_SETUP_ROWS - 1);
+        setup_row = (unsigned)clamp((int)setup_row + rows, 0, SMK37_SETUP_ROWS);
+        if (setup_row == SMK37_SETUP_ROWS && controls->encoders[3]) /* BLUETOOTH: any turn toggles */
+            groove_settings_radio(groove_settings_radio_flags() ^ GROOVE_RADIO_ON, groove_settings_role_value());
         smk37_setup_edit(setup_row, controls->encoders[3]);
         if (pressed & BUTTON(SAVE)) smk37_setup_edit(setup_row, -9);
         return;
@@ -1901,8 +1934,7 @@ void groove_screen_init(void)
     previous_buttons = previous_keys = blocked_keys = retry_reset = 0;
     glo_down = glo_used = ble_device = ble_was_linked = ble_view = ble_action = 0;
     ble_result = source_result = 0;
-    ble_forget = ble_stage = ble_seconds = 0;
-    ble_stage_since = fm1_millis();
+    ble_forget = 0;
     struct fm1_engine_stats health;
     fm1_engine_stats_read(&health);
     health_output = groove_midi_dropped();
@@ -2369,7 +2401,6 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
             else if (action == 14) r = groove_edit_undo();
             else if (action == 15) { r = groove_timbre_export(track, (uint8_t *)&tone_clip, sizeof tone_clip); tone_clip_ready = !r; }
             else if (action == 16) r = tone_clip_ready ? groove_timbre_import(track, (uint8_t *)&tone_clip, sizeof tone_clip) : -1;
-            else if (action == 17 || action == 18) { page = MAP_PAGE; map_edit = 1; map_page = action == 18; }
             else {
                 if (!post(0xff, 0, 0, 1)) return 0;
                 memset(key_note, 0xff, sizeof key_note); project_keys = 0; writing = 0; page = OVERVIEW;
@@ -2726,15 +2757,11 @@ void groove_screen_control(void)
      * Ignore the initial MASTER ADC pickup when deciding whether to skip. */
     if (boot_active && (now - boot_started >= 1200U || controls.buttons || controls.keys ||
         encoder_active(controls.encoders) || (master_changed && now - boot_started >= 150U))) {
-        boot_active = 0;
         input_changed = 1;
     }
     struct fm1_ble_status ble = {0};
     fm1_ble_get_status(&ble);
-    unsigned stage = ble.state | (ble.pending << 8);
-    if (stage != ble_stage) { ble_stage = stage; ble_stage_since = now; }
-    ble_seconds = (now - ble_stage_since) / 1000U;
-    if (ble_seconds > 999) ble_seconds = 999;
+    /* BLE stage timer removed with the Bluetooth page. */
     unsigned linked = ble.state == FM1_BLE_CONNECTED || ble.state == FM1_BLE_READY ||
                       ble.state == FM1_BLE_DISCOVERING;
     if (ble_was_linked && !linked)
@@ -2808,6 +2835,7 @@ int smk37_performance_octave(unsigned pad)
 unsigned smk37_pad_focus(void) { return pad_focus; }
 void smk37_screen_note(unsigned owner,unsigned note)
 {
+    live_note=(uint8_t)(note+1);
     /* SMK37's chromatic keys bypass FM1's legacy panel-key bitmap. Follow the
      * sounding note without letting the other instrument steal this editor. */
     if(owner!=track || (page!=FM_ENV && page!=TONE_EDIT))return;
@@ -2850,7 +2878,7 @@ __attribute__((noinline, cold, minsize)) void smk37_screen_pad_mode(unsigned ste
     notice=steps?"PAD STEPS - SHIFT+PAD TO PLAY":
         pad_focus?"PAD READY - EDIT / ENV / FX":"KEY READY - EDIT / ENV / FX";
     notice_until=fm1_millis()+2000U;
-    boot_active=0;cache->shown_page=~0U;
+    cache->shown_page=~0U;
 }
 unsigned smk37_screen_pad_key(unsigned pad)
 {
@@ -2872,7 +2900,7 @@ int smk37_screen_pad(unsigned pad,unsigned velocity,unsigned steps)
     groove_edit_record(0,track,next);
     if(seq_page==1 || seq_page==3)cursor=next;
     else toggle_step(next);
-    boot_active=0;cache->shown_page=~0U;
+    cache->shown_page=~0U;
     return 1;
 }
 void smk37_screen_page(unsigned target)
@@ -2886,7 +2914,7 @@ void smk37_screen_page(unsigned target)
     if(page==STEPS) {music_page=STEPS;seq_page=5;}
     else if(page==MAP_PAGE) {}
     else {source_preview=groove_source_type(track);source_result=0;}
-    boot_active=0;cache->shown_page=~0U;
+    cache->shown_page=~0U;
 }
 unsigned smk37_screen_map_mode(void)
 { return page==MAP_PAGE ? 1U+map_edit : 0U; }
@@ -2915,7 +2943,7 @@ void smk37_screen_shortcut(unsigned pad)
         groove_mix_toggle(pad-8,0);
         notice="TRACK MUTE CHANGED";
     }
-    notice_until=fm1_millis()+1200U;boot_active=0;cache->shown_page=~0U;
+    notice_until=fm1_millis()+1200U;cache->shown_page=~0U;
 }
 #ifdef FM1_HOST_TEST
 int groove_screen_preset(unsigned slot)
@@ -2934,7 +2962,6 @@ unsigned groove_screen_preset_position(void)
 int groove_screen_open(unsigned target)
 {
     if (target > ARP_EDIT || target == PROJECT || target == BLE) return -1;
-    boot_active = 0;
     unsigned quick = target == FM_QUICK;
     if (quick && groove_source_type(track) != GROOVE_DX7) target = TONE_EDIT;
     if ((target == FM_EDIT || target == NAME) &&
