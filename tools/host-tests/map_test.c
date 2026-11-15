@@ -49,6 +49,8 @@ int main(void){
   row(8); knob(1,1); knob(2,5);                       /* F1 LEVEL T5 */
   unsigned bass=8; for(unsigned t=0;t<8;++t) if(bass==8 && groove_source_type(t)==GROOVE_303) bass=t;
   row(1); knob(1,4); knob(2,(int)bass+1);             /* K2 CUTOFF on the 303 track */
+  row(5); knob(1,3); knob(2,3); knob(4,1);            /* K6 DELAY T3 ALL */
+  CHECK(smk37_map_get(5)->target==SMK37_MAP_DELAY && smk37_map_get(5)->all,"K6 = DELAY T3 ALL (K5 sets ALL)");
   CHECK(smk37_map_get(4)->target==SMK37_MAP_REVERB && smk37_map_get(4)->track==3,"K5 = REVERB T3");
   CHECK(smk37_map_get(9)->target==SMK37_MAP_CC && smk37_map_get(9)->cc==74 && smk37_map_get(9)->channel==1,"F2 = MIDI CC 74 CH2 (learned)");
   CHECK(smk37_map_get(8)->target==SMK37_MAP_LEVEL && smk37_map_get(8)->track==5,"F1 = LEVEL T5");
@@ -57,6 +59,7 @@ int main(void){
   button(BT,100); button(BT,100); CHECK(mode()==0,"back on the normal pages");
   uint8_t s[2]; groove_sends_get(2,s); unsigned rev0=s[0];
   knob(4,3); groove_sends_get(2,s); CHECK(s[0]==rev0,"outside LIVE, K5 does not touch T3 reverb");
+  unsigned dly0=s[1]; knob(5,2); groove_sends_get(2,s); CHECK(s[1]==dly0+2,"outside LIVE, K6 (ALL) turns T3 delay");
   struct groove_view v; groove_get_view(4,0,&v); unsigned t5=v.volume;
   fader(0,30); fader(0,50); groove_get_view(4,0,&v); CHECK(v.volume==t5,"outside LIVE, F1 does not touch T5 level");
   /* ---- LIVE: assignments play ---- */
@@ -103,6 +106,7 @@ int main(void){
   /* ---- Persistence ---- */
   wait(4000); sim_boot(0); wait(1500);
   CHECK(smk37_map_get(4)->target==SMK37_MAP_REVERB && smk37_map_get(9)->cc==74 && smk37_setup[0]==3,"assignments and LIVE SETUP survive reboot");
+  CHECK(smk37_map_get(5)->all && !smk37_map_get(4)->all,"LIVE/ALL survives reboot");
   CHECK(!(groove_settings_radio_flags()&GROOVE_RADIO_ON),"Bluetooth OFF survives reboot");
   button(BT,100); CHECK(mode()==1,"BT opens LIVE after reboot");
   printf("fails=%d\n",fails); return fails!=0;

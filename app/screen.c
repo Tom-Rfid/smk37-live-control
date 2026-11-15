@@ -631,7 +631,7 @@ static void step_adjust(unsigned bank, const int16_t *encoders, uint32_t now)
         unsigned setting = bank * 4 + i;
         if (setting < 7) {
             if (groove_step_setting_edit(track, cursor, setting, encoders[2 + i])) {
-                announce("UNAVAILABLE / CHORD OR LOCK FULL", now + 2000U);
+                announce("CHORD OR LOCK FULL", now + 2000U);
             }
         } else if (!groove_pad_count(track)) {
             struct groove_view v; groove_get_view(track, cursor, &v);
@@ -1120,7 +1120,7 @@ static __attribute__((noinline, minsize)) void draw_map(void)
         memset(cache->tile_cache, 0xff, sizeof cache->tile_cache);
         erase(0, 0, 240, 240);
         text(8, 8, map_page ? "LIVE SETUP 2/2" : "CONTROL MAP 1/2", 2, ACCENT, BACK);
-        dim_text(8, 213, map_page ? "K1 ROW  K2 VALUE" : "K1 ROW  K2 TYPE  K3 TRK/CC  K4 CH");
+        dim_text(8, 213, map_page ? "K1 ROW  K2 VALUE" : "K1 ROW K2 TYPE K3 TRK/CC K4 CH K5 ALL");
         dim_text(8, 229, "> DEFAULT  OCT PAGE  < OR BT: LIVE");
     }
     char line[32];
@@ -1140,6 +1140,7 @@ static __attribute__((noinline, minsize)) void draw_map(void)
     for (unsigned i = 0; i < SMK37_MAP_CONTROLS; ++i) {
         const struct smk37_map_entry *e = smk37_map_get(i);
         line[0] = i == map_row ? '>' : ' '; map_label(i, line + 1, 1);
+        if (e->target && e->all) strcat(line, " ALL");
         radio_line(i, 40 + i * 14, line, i == map_row ? ACCENT : e->target ? TEXT : DIM);
     }
 }
@@ -1163,6 +1164,7 @@ static __attribute__((noinline, minsize)) void map_control(const struct fm1_cont
     }
     map_row = (unsigned)clamp((int)map_row + rows, 0, SMK37_MAP_CONTROLS - 1);
     for (unsigned i = 0; i < 3; ++i) smk37_map_edit(map_row, i, controls->encoders[3 + i]);
+    smk37_map_edit(map_row, 3, controls->encoders[0]); /* K5: LIVE / ALL */
     if (pressed & BUTTON(SAVE)) smk37_map_clear(map_row);
 }
 static __attribute__((noinline)) void project_draw(void)
@@ -2405,11 +2407,11 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                 if (!post(0xff, 0, 0, 1)) return 0;
                 memset(key_note, 0xff, sizeof key_note); project_keys = 0; writing = 0; page = OVERVIEW;
             }
-            announce(r == -3 ? "COPY MATCHING STEP / PAGE / TRACK FIRST"
+            announce(r == -3 ? "COPY A STEP/PAGE/TRACK FIRST"
                 : r == -2 ? "CHORD / LOCK TABLE FULL" : r ? "UNAVAILABLE / INCOMPATIBLE"
-                : operation == 2 ? "STEP COPIED - CHOOSE DESTINATION"
-                : operation == 3 ? "PAGE COPIED - CHOOSE DESTINATION"
-                : operation == 4 ? "TRACK COPIED - CHOOSE DESTINATION"
+                : operation == 2 ? "STEP COPIED - PICK TARGET"
+                : operation == 3 ? "PAGE COPIED - PICK TARGET"
+                : operation == 4 ? "TRACK COPIED - PICK TARGET"
                 : operation == 5 ? "STEP PASTED - UNDO AVAILABLE"
                 : operation == 6 ? "PAGE PASTED - UNDO AVAILABLE" : "DONE", now + 2000U);
             cache->middle_cache = ~0U;
@@ -2497,7 +2499,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                         sequence_length_adjust(controls->encoders[4]);
                         groove_settings_midi(track,6,controls->encoders[5]);
                         if (controls->encoders[3] && groove_clock_mode()) {
-                            announce("EXT CLOCK - CHANGE BPM AT SOURCE", now + 2000U);
+                            announce("EXT CLOCK: BPM AT SOURCE", now + 2000U);
                         }
                     } else if (seq_page >= 5) {
                         for (unsigned i = 0; i < 4; ++i) if (controls->encoders[2+i]) {
@@ -2513,7 +2515,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                                 r=groove_settings_track(track,1,delta);
                             }
                             else groove_settings_midi(track,parameter,delta);
-                            announce(r ? "TRACK SETTING FAILED" : parameter == 0 || parameter == 9 ? "SEQ OUTPUT UPDATED" : "MIDI SETTING - NOTES RELEASED", now + 1500U);
+                            announce(r ? "TRACK SETTING FAILED" : parameter == 0 || parameter == 9 ? "SEQ OUTPUT UPDATED" : "MIDI SET - NOTES OFF", now + 1500U);
                         }
                     }
                 }
@@ -2522,10 +2524,10 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                     for (unsigned i = 0; i < 4; ++i) if (controls->encoders[2 + i]) {
                         if (arp_page && i == 3) {
                             groove_settings_midi(track, 1, controls->encoders[2 + i]);
-                            announce("MIDI SETTING - NOTES RELEASED", now + 1500U);
+                            announce("MIDI SET - NOTES OFF", now + 1500U);
                         } else if (arp_page) { if (i < 2) groove_arp_edit(track, i + 4, controls->encoders[2 + i]); }
                         else if (groove_pad_count(track) && i >= 2) {
-                            announce("RANGE / GATE FOR MELODIC TRACKS", now + 2000U);
+                            announce("MELODIC TRACKS ONLY", now + 2000U);
                         } else groove_arp_edit(track, i, controls->encoders[2 + i]);
                     }
                 } else if (page == FM_QUICK) {
@@ -2594,7 +2596,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                     if (controls->encoders[5]) {
                         groove_tempo_edit(controls->encoders[5]);
                         if (groove_clock_mode() == GROOVE_CLOCK_MIDI) {
-                            announce("EXTERNAL CLOCK - USE INT FOR BPM", now + 2000U);
+                            announce("EXT CLOCK: BPM AT SOURCE", now + 2000U);
                         }
                     }
                 }
@@ -2738,11 +2740,11 @@ void groove_screen_control(void)
         fm1_audio_stats_read(&dma);
         unsigned adapted = audio.adapted;
         if (health.underruns != health_underruns || dma.overruns != health_dma) {
-            announce("AUDIO OVERLOAD - REDUCE VOICES", now + 2500U);
+            announce("AUDIO OVERLOAD", now + 2500U);
         } else if (health.midi_dropped != health_dropped) {
             announce("MIDI FULL - NOTES RESET", now + 2500U);
         } else if (groove_midi_dropped() != health_output) {
-            announce("MIDI OUT FULL - NOTES RESET", now + 2500U);
+            announce("MIDI OUT FULL", now + 2500U);
         } else if (adapted > health_adapted) {
             announce("CPU GUARD - VOICES ADAPTED", now + 2500U);
         }
@@ -2770,7 +2772,7 @@ void groove_screen_control(void)
     writing = groove_edit_recording();
     if (writing) cursor = groove_edit_cursor();
     unsigned error = groove_edit_error();
-    if (error && !notice) { announce(error == 1 ? "RECORD STOPPED - MIDI QUEUE FULL" : "CHORD LIMIT - LAST NOTES KEPT", now + 2000U); }
+    if (error && !notice) { announce(error == 1 ? "REC STOPPED: MIDI FULL" : "CHORD LIMIT - LAST NOTES KEPT", now + 2000U); }
     struct groove_view transport;
     groove_get_view(track, cursor, &transport);
     cursor %= transport.sequence_length;

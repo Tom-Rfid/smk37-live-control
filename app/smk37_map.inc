@@ -23,9 +23,10 @@ void smk37_map_edit(unsigned control, unsigned parameter, int delta)
     if (control >= SMK37_MAP_CONTROLS || !delta) return;
     struct smk37_map_entry *e = &map[control];
     unsigned cc = e->target == SMK37_MAP_CC;
-    if (parameter == 2 && !cc) return;
-    uint8_t *field = parameter == 0 ? &e->target : parameter == 2 ? &e->channel : cc ? &e->cc : &e->track;
-    *field = (uint8_t)map_add(*field, delta, parameter == 0 ? SMK37_MAP_TARGETS - 1 : parameter == 2 ? 15 : cc ? 127 : 8);
+    if (parameter == 3) e->all = delta > 0;            /* K5: right = ALL, left = LIVE */
+    else if (parameter == 2) { if (!cc) return; e->channel = map_add(e->channel, delta, 15) & 15U; }
+    else { uint8_t *field = parameter == 0 ? &e->target : cc ? &e->cc : &e->track;
+        *field = (uint8_t)map_add(*field, delta, parameter == 0 ? SMK37_MAP_TARGETS - 1 : cc ? 127 : 8); }
     groove_settings_panel_changed();
 }
 void smk37_map_clear(unsigned control)
@@ -78,7 +79,8 @@ static void map_apply(unsigned control, int delta, int absolute)
 }
 int smk37_map_encoder(unsigned id, int delta)
 {
-    if (id >= SMK37_MAP_KNOBS || smk37_screen_map_mode() != 1) return 0;
+    unsigned mode = smk37_screen_map_mode();
+    if (id >= SMK37_MAP_KNOBS || mode == 2 || (!mode && !(map[id].target && map[id].all))) return 0;
     /* LIVE: unassigned K1-K7 do nothing but show "-"; K8 stays MASTER. */
     if (!map[id].target) { if (id < 7) { smk37_map_last = (uint8_t)id; ++smk37_map_moves; } return id < 7; }
     map_apply(id, delta << smk37_setup[SMK37_SETUP_SPEED], -1);
@@ -93,7 +95,8 @@ int smk37_map_fader(unsigned id, unsigned value)
     int previous = map_fader_last[id];
     unsigned seen = map_fader_seen & bit;
     map_fader_last[id] = (uint8_t)value; map_fader_seen |= (uint8_t)bit;
-    if (target == SMK37_MAP_LEVEL || smk37_screen_map_mode() != 1) return 0;
+    unsigned mode = smk37_screen_map_mode();
+    if (target == SMK37_MAP_LEVEL || mode == 2 || (!mode && !(target && map[control].all))) return 0;
     if (seen && (int)value != previous) {
         /* LIVE: an unassigned fader does nothing but shows "-". */
         if (!target) { smk37_map_last = (uint8_t)control; ++smk37_map_moves; return 1; }
@@ -107,7 +110,7 @@ void smk37_map_preferences_read(uint8_t data[SMK37_MAP_BYTES])
 int smk37_map_preferences_apply(const uint8_t data[SMK37_MAP_BYTES])
 {
     for (unsigned i = 0; i < sizeof map; i += 4)
-        if (data[i] >= SMK37_MAP_TARGETS || data[i + 1] > 8 || data[i + 2] > 127 || data[i + 3] > 15) return -1;
+        if (data[i] >= SMK37_MAP_TARGETS || data[i + 1] > 8 || data[i + 2] > 127 || data[i + 3] > 31) return -1;
     if (data[48] > 3 || data[49] > 1 || data[50] > 2) return -1;
     memcpy(map, data, sizeof map); memcpy(smk37_setup, data + sizeof map, sizeof smk37_setup);
     return 0;

@@ -27,7 +27,8 @@ enum smk37_map_target {
 };
 /* track 0 follows the selected track; 1..8 are T1..T8. channel is 0..15.
  * All-zero bytes are the default (DEFAULT, selected track, CC 0, channel 1). */
-struct smk37_map_entry { uint8_t target, track, cc, channel; };
+/* all: 0 = acts on the LIVE page only (default), 1 = on every page except editing. */
+struct smk37_map_entry { uint8_t target, track, cc; uint8_t channel : 4, all : 1; };
 /* LIVE SETUP page: velocity curve (NORMAL, SOFT, HARD, FIXED 100), fader
  * mode (PICKUP, JUMP), knob speed (X1, X2, X4). */
 enum { SMK37_SETUP_VELOCITY, SMK37_SETUP_FADERS, SMK37_SETUP_SPEED, SMK37_SETUP_ROWS };

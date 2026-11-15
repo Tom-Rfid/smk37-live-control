@@ -10,10 +10,15 @@ roles stay untouched everywhere else.
   LFO targets also draw the current LFO shape.
 - **HOME** (`<` or PATCH) or **BT held 1 s** (green progress bar): editing
   (CONTROL MAP 1/2, LIVE SETUP 2/2; OCT-/OCT+ change page).
+- In CONTROL MAP, **K5** sets each assignment to **LIVE** (default: acts on the
+  BT page only) or **ALL** (acts on every page except editing, replacing that
+  control's normal role; the row shows "ALL"). Prefer ALL on controls you do not
+  need for menu navigation (K1-K4 are used by most menus).
 - In editing, **HOME** or **BT** returns to LIVE. On LIVE, **BT** exits.
 
 This build removes the BLUETOOTH settings page, the DX7 PATCH NAME page and the
-startup animation and the BLE stage timer, and size-optimises the LCD transfer
+startup animation, the BLE stage timer and the ACTIONS shortcuts, shortens some
+status messages, and size-optimises the LCD transfer
 functions: the V01 app image had only 29 bytes of free Flash (this build: 29).
 
 Each of the twelve controls, K1–K8 and F1–F4, can keep its normal behaviour

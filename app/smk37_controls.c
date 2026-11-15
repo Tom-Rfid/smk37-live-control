@@ -167,7 +167,7 @@ static void fader(unsigned id,unsigned value)
     if(learn && (fader_valid&(1U<<id)) && value!=faders[id])smk37_screen_map_select(SMK37_MAP_KNOBS+id);
     if(smk37_map_fader(id,value) || learn) {faders[id]=value;fader_valid|=1U<<id;return;}
     const struct smk37_map_entry *assigned=smk37_map_get(SMK37_MAP_KNOBS+id);
-    unsigned live=assigned->target==SMK37_MAP_LEVEL && smk37_screen_map_mode()==1;
+    unsigned mode=smk37_screen_map_mode(),live=assigned->target==SMK37_MAP_LEVEL && (mode==1 || (!mode && assigned->all));
     unsigned track=!live?4*bank+id:assigned->track?assigned->track-1U:smk37_screen_track()%GROOVE_TRACKS;
     struct groove_view view;groove_get_view(track,0,&view);
     unsigned target=view.volume, previous=faders[id];
