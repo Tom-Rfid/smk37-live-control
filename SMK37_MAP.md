@@ -41,6 +41,8 @@ Each of the twelve controls, K1–K8 and F1–F4, can keep its normal behaviour
 | REV TIME / DLY TIME / DLY FDBK / FX RETURN | shared effects | follows motion |
 | TEMPO | BPM | follows motion |
 | MIDI CC | external CC, channel | absolute 0–127 |
+| SOUND | next / previous sound (program) of a track | follows motion |
+| KEYS TRK | track played by the keys (T1–T8) | follows motion |
 
 There is no chorus effect in the SMK37 Open engine.
 

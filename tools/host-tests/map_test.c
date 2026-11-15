@@ -53,6 +53,9 @@ int main(void){
   unsigned bass=8; for(unsigned t=0;t<8;++t) if(bass==8 && groove_source_type(t)==GROOVE_303) bass=t;
   row(1); knob(1,4); knob(2,(int)bass+1);             /* K2 CUTOFF on the 303 track */
   row(5); knob(1,3); knob(2,3); knob(4,1);            /* K6 DELAY T3 ALL */
+  row(2); knob(1,15); knob(2,1);                      /* K3 SOUND T1 */
+  row(3); knob(1,16);                                 /* K4 KEYS TRK */
+  CHECK(smk37_map_get(2)->target==SMK37_MAP_SOUND && smk37_map_get(3)->target==SMK37_MAP_KEYS,"K3 = SOUND T1, K4 = KEYS TRK");
   CHECK(smk37_map_get(5)->target==SMK37_MAP_DELAY && smk37_map_get(5)->all,"K6 = DELAY T3 ALL (K5 sets ALL)");
   CHECK(smk37_map_get(4)->target==SMK37_MAP_REVERB && smk37_map_get(4)->track==3,"K5 = REVERB T3");
   CHECK(smk37_map_get(9)->target==SMK37_MAP_CC && smk37_map_get(9)->cc==74 && smk37_map_get(9)->channel==1,"F2 = MIDI CC 74 CH2 (learned)");
@@ -87,6 +90,10 @@ int main(void){
   knob(0,3); groove_fm_copy(0,patch,NULL); CHECK(!memcmp(before,patch,156),"LIVE: unassigned K1 does nothing");
   CHECK(smk37_map_last==0,"LIVE: unassigned K1 shows -");
   shot("08_live_unassigned");
+  { struct groove_view w; groove_get_view(0,0,&w); unsigned p0=w.program;
+    knob(2,1); groove_get_view(0,0,&w); CHECK(w.program!=p0,"LIVE: K3 changes the T1 sound"); shot("12_live_sound");
+    unsigned k0=smk37_screen_track(); knob(3,1); CHECK(smk37_screen_track()==k0+1 && mode()==1,"LIVE: K4 moves the keys to the next track, stays on LIVE");
+    shot("13_live_keys"); knob(3,-1); }
   groove_get_view(2,0,&v); unsigned t3=v.volume;
   fader(2,30); fader(2,70); groove_get_view(2,0,&v);
   CHECK(v.volume==t3 && smk37_map_last==10,"LIVE: unassigned F3 does nothing and shows -");

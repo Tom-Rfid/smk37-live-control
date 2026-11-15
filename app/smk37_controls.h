@@ -20,6 +20,7 @@ void smk37_master_set(unsigned level);
 unsigned smk37_screen_track(void);
 int smk37_screen_octave(void);
 unsigned smk37_performance_track(unsigned pad);
+void smk37_screen_keys_track(int delta); /* LIVE KEYS TRK target */
 int smk37_performance_octave(unsigned pad);
 unsigned smk37_pad_focus(void);
 unsigned smk37_pad_aftertouch(void);

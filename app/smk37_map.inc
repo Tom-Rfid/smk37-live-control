@@ -10,7 +10,7 @@ unsigned smk37_map_cc_value(unsigned control) { return map_cc[control % SMK37_MA
 
 const char *const smk37_map_target_names[SMK37_MAP_TARGETS] = {
     "DEFAULT", "LEVEL", "REVERB", "DELAY", "CUTOFF", "LFO RATE", "LFO DEPTH", "LFO WAVE",
-    "FM FDBK", "REV TIME", "DLY TIME", "DLY FDBK", "FX RETURN", "TEMPO", "MIDI CC"
+    "FM FDBK", "REV TIME", "DLY TIME", "DLY FDBK", "FX RETURN", "TEMPO", "MIDI CC", "SOUND", "KEYS TRK"
 };
 const struct smk37_map_entry *smk37_map_get(unsigned control)
 { return &map[control < SMK37_MAP_CONTROLS ? control : 0]; }
@@ -71,6 +71,8 @@ static void map_apply(unsigned control, int delta, int absolute)
     } else if (target == SMK37_MAP_FM_FEEDBACK) { if (dx7) groove_fm_edit(t, 135, delta); }
     else if (target <= SMK37_MAP_FX_RETURN) groove_effects_edit(target - SMK37_MAP_REV_TIME, delta);
     else if (target == SMK37_MAP_TEMPO) groove_tempo_edit(delta);
+    else if (target == SMK37_MAP_SOUND) groove_control_edit(t, delta, 0, 0); /* next/previous sound of the track */
+    else if (target == SMK37_MAP_KEYS) smk37_screen_keys_track(delta);       /* track played by the keys */
     else {
         unsigned value = absolute >= 0 ? (unsigned)absolute : map_add(map_cc[control], 2 * delta, 127);
         map_cc[control] = (uint8_t)value;

@@ -23,7 +23,8 @@ enum smk37_map_target {
     SMK37_MAP_DEFAULT, SMK37_MAP_LEVEL, SMK37_MAP_REVERB, SMK37_MAP_DELAY,
     SMK37_MAP_CUTOFF, SMK37_MAP_LFO_RATE, SMK37_MAP_LFO_DEPTH, SMK37_MAP_LFO_WAVE,
     SMK37_MAP_FM_FEEDBACK, SMK37_MAP_REV_TIME, SMK37_MAP_DLY_TIME, SMK37_MAP_DLY_FEEDBACK,
-    SMK37_MAP_FX_RETURN, SMK37_MAP_TEMPO, SMK37_MAP_CC, SMK37_MAP_TARGETS
+    SMK37_MAP_FX_RETURN, SMK37_MAP_TEMPO, SMK37_MAP_CC,
+    SMK37_MAP_SOUND, SMK37_MAP_KEYS, /* after CC: saved assignments keep their numbers */ SMK37_MAP_TARGETS
 };
 /* track 0 follows the selected track; 1..8 are T1..T8. channel is 0..15.
  * All-zero bytes are the default (DEFAULT, selected track, CC 0, channel 1). */

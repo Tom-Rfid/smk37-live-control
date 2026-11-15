@@ -1005,7 +1005,7 @@ static __attribute__((noinline, minsize)) void map_label(unsigned i, char *p, un
         unsigned ch = e->channel + 1U;
         p[0] = ' '; p[1] = (char)('0' + e->cc / 100); p[2] = (char)('0' + e->cc / 10 % 10);
         p[3] = (char)('0' + e->cc % 10); p[4] = '/'; p[5] = (char)('0' + ch / 10); p[6] = (char)('0' + ch % 10); p[7] = 0;
-    } else if (e->target > SMK37_MAP_FM_FEEDBACK) return;
+    } else if (e->target > SMK37_MAP_FM_FEEDBACK && e->target != SMK37_MAP_SOUND) return;
     else if (!e->track) strcpy(p, " SEL");
     else { p[0] = ' '; p[1] = 'T'; p[2] = (char)('0' + e->track); p[3] = 0; }
 }
@@ -1042,6 +1042,8 @@ static __attribute__((minsize)) void map_value(unsigned control, char out[16], u
         uint8_t fx[4]; groove_effects_get(fx); value = fx[target - SMK37_MAP_REV_TIME];
     } else if (target == SMK37_MAP_TEMPO) value = v.tempo;
     else if (target == SMK37_MAP_CC) { value = (int)smk37_map_cc_value(control); max = 127; }
+    else if (target == SMK37_MAP_SOUND) value = v.program + 1;
+    else if (target == SMK37_MAP_KEYS) { out[0] = 'T'; out[1] = (char)('1' + track); out[2] = 0; return; }
     else if (target == SMK37_MAP_CUTOFF && groove_source_type(t) == GROOVE_303) {
         uint8_t tone[GROOVE_TONE_PARAMS]; groove_tone_copy(t, 0, tone); value = tone[BASS303_CUTOFF]; max = 127;
     }
@@ -1233,8 +1235,8 @@ static __attribute__((noinline)) void preset_draw(void)
     plain_text(8, 148, "PLAY LOAD + RUN   > PROJECT");
     dim_text(8, 170, "PADS 1-16 LOAD DIRECTLY");
     dim_text(8, 191, "K1 BANK: USER / FACTORY");
-    color_text(8, 213, project_result == GROOVE_PROJECT_EMPTY ? "EMPTY SLOT - CHOOSE ANOTHER" :
-         project_result ? "LOAD FAILED - CURRENT KEPT" : "</PATCH BACK  </PATCH+> UNDO", project_result ? AMBER : DIM);
+    color_text(8, 213, project_result == GROOVE_PROJECT_EMPTY ? "EMPTY SLOT" :
+         project_result ? "LOAD FAILED" : "</PATCH BACK  </PATCH+> UNDO", project_result ? AMBER : DIM);
 }
 static __attribute__((noinline)) void name_draw(void)
 {
@@ -1891,7 +1893,7 @@ static int preset_load(unsigned start, uint32_t now)
     memset(drum_parts, 0, sizeof drum_parts);
     selected_note = groove_pad_count(track) ? groove_pad_note(track, 0) : 60;
     page = music_page = OVERVIEW;
-    announce(start ? "PRESET LOADED - PLAYING" : "PRESET LOADED - PLAY TO START", now + 2000U);
+    announce(start ? "PRESET LOADED - PLAYING" : "PRESET LOADED", now + 2000U);
     if (start) {
         struct groove_view view; groove_get_view(track, cursor, &view);
         /* A live Play session keeps its transport during project replacement.
@@ -2404,12 +2406,12 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                 memset(key_note, 0xff, sizeof key_note); project_keys = 0; writing = 0; page = OVERVIEW;
             }
             announce(r == -3 ? "COPY A STEP/PAGE/TRACK FIRST"
-                : r == -2 ? "CHORD / LOCK TABLE FULL" : r ? "UNAVAILABLE / INCOMPATIBLE"
-                : operation == 2 ? "STEP COPIED - PICK TARGET"
-                : operation == 3 ? "PAGE COPIED - PICK TARGET"
-                : operation == 4 ? "TRACK COPIED - PICK TARGET"
-                : operation == 5 ? "STEP PASTED - UNDO AVAILABLE"
-                : operation == 6 ? "PAGE PASTED - UNDO AVAILABLE" : "DONE", now + 2000U);
+                : r == -2 ? "CHORD / LOCK TABLE FULL" : r ? "UNAVAILABLE"
+                : operation == 2 ? "STEP COPIED"
+                : operation == 3 ? "PAGE COPIED"
+                : operation == 4 ? "TRACK COPIED"
+                : operation == 5 ? "STEP PASTED"
+                : operation == 6 ? "PAGE PASTED" : "DONE", now + 2000U);
             cache->middle_cache = ~0U;
         }
         goto controls_done;
@@ -2826,6 +2828,8 @@ void groove_screen_mmc(unsigned command)
 }
 unsigned smk37_screen_track(void) { return track; }
 int smk37_screen_octave(void) { return octave; }
+void smk37_screen_keys_track(int delta)
+{ if(release_keys()) select_track(delta); }
 unsigned smk37_performance_track(unsigned pad)
 { return pad==pad_focus?track:instrument_track[pad]; }
 int smk37_performance_octave(unsigned pad)
@@ -2936,7 +2940,7 @@ void smk37_screen_shortcut(unsigned pad)
         select_track((int)pad-(int)track);
         notice="TRACK SELECTED";
     } else if(groove_track_role(pad-8)==GROOVE_TRACK_OFF) {
-        notice="TRACK OFF - SHIFT+HOME K2";
+        notice="TRACK OFF - KNOB BANK+PATCH";
     } else {
         groove_mix_toggle(pad-8,0);
         notice="TRACK MUTE CHANGED";
