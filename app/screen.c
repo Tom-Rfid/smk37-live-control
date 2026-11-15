@@ -152,6 +152,7 @@ static const char *const actions[] = {"STEP DETAILS", "RHYTHM / RECORD", "COPY S
     "STOP ALL / REWIND"}; /* CONTROL MAP / LIVE SETUP: BT, then < or hold BT */
 enum { ACTION_COUNT = sizeof actions / sizeof actions[0] };
 static unsigned source_preview, action, action_confirm, tone_clip_ready;
+static uint32_t source_back; /* SOURCE: return time after K2, 0 none */
 static struct groove_preset tone_clip;
 static uint32_t midi_seen[8], midi_until[8];
 static uint8_t midi_active[8];
@@ -850,7 +851,7 @@ static __attribute__((noinline)) void track_lfo_draw(void)
     text(8, 100, v[2] ? "STEREO PAN" : "VOLUME TREMOLO", 2, TEXT, BACK);
     dim_text(8, 140, "K1 RATE    K2 DEPTH");
     dim_text(8, 159, "K3 TARGET  K4 WAVE");
-    dim_text(8, 181, "KEYS PLAY  SELECT TRACK");
+    dim_text(8, 181, "KEYS PLAY  K5 TRACK");
     static const char *const labels[] = {"RATE Hz", "DEPTH", "TARGET", "WAVE"};
     static const char *const waves[] = {"TRI", "SQUARE", "SAW UP", "SAW DOWN"};
     for (unsigned i = 0; i < 4; ++i) {
@@ -907,13 +908,13 @@ static __attribute__((noinline)) void tone_draw(const uint8_t values[GROOVE_TONE
              : type == GROOVE_303                         ? pages[pg]
              : type == GROOVE_808 && part == GROOVE_DRUMS ? "KIT SETTINGS"
                                                           : groove_pad_name(track, part), TEXT);
-        color_text(8, 181, page == FM_ENV ? (groove_pad_count(track) ? "KEY/PAD: PART" : "KEYS PLAY  SELECT TRACK")
-             : type == GROOVE_PSG     ? "KEYS PLAY  PRESETS MODE"
+        color_text(8, 181, page == FM_ENV ? (groove_pad_count(track) ? "KEY/PAD: PART" : "KEYS PLAY  K5 TRACK")
+             : type == GROOVE_PSG     ? "KEYS PLAY  K7 MODE"
              : type == GROOVE_PLUCK ? "KEYS PLAY  KNOBS EDIT"
              : type == GROOVE_303
                  ? (view.mono ? "MONO SLIDE  MONO/POLY KEYS" : "POLY 4      MONO/POLY KEYS")
              : type == GROOVE_SAMPLE ? "PADS 1-8 PLAY / SELECT"
-                                     : page == FM_ENV ? "PRESETS DRUM  KEYS PLAY" : "PRESETS DRUM / KIT  KEYS PLAY", DIM);
+                                     : page == FM_ENV ? "K7 DRUM  KEYS PLAY" : "K7 DRUM / KIT  KEYS PLAY", DIM);
         memset(cache->tile_cache, 0xff, sizeof cache->tile_cache);
     }
     if (!groove_pad_count(track)) {
@@ -1008,15 +1009,14 @@ static __attribute__((noinline, minsize)) void map_label(unsigned i, char *p, un
     else if (!e->track) strcpy(p, " SEL");
     else { p[0] = ' '; p[1] = 'T'; p[2] = (char)('0' + e->track); p[3] = 0; }
 }
-/* LIVE readout of one assignment: value text and 0..100 bar (255: none).
- * live_wave: LFO shape to draw (DX7 order TRI SAWDN SAWUP SQR SINE S&H), 255 none. */
-static uint8_t live_wave, live_note; /* live_note: last note + 1, 0 none */
+/* LIVE readout of one assignment: value text and 0..100 bar (255: none). */
+static uint8_t live_note; /* last note + 1, 0 none */
 static __attribute__((minsize)) void map_value(unsigned control, char out[16], unsigned *bar)
 {
     const struct smk37_map_entry *e = smk37_map_get(control);
     unsigned target = e->target, t = e->track ? e->track - 1U : track;
     int value = -1, max = 0;
-    *bar = 255; out[0] = 0; live_wave = 255;
+    *bar = 255; out[0] = 0;
     struct groove_view v; groove_get_view(t, 0, &v);
     if (target == SMK37_MAP_LEVEL) { value = v.volume; max = 127; }
     else if (target == SMK37_MAP_REVERB || target == SMK37_MAP_DELAY) {
@@ -1026,13 +1026,12 @@ static __attribute__((minsize)) void map_value(unsigned control, char out[16], u
         unsigned k = target - SMK37_MAP_LFO_RATE, dx7 = groove_source_type(t) == GROOVE_DX7;
         uint8_t lfo[4];
         if (dx7) { groove_fm_copy(t, frame_patch, NULL);
-            static const uint8_t at[4] = {137, 139, 142, 135}; value = frame_patch[at[k]]; max = k == 3 ? 7 : 99;
-            if (k < 3) live_wave = (uint8_t)(frame_patch[142] % 6); }
-        else if (k < 3) { groove_lfo_copy(t, lfo); value = lfo[k == 2 ? 3 : k]; max = 100;
-            static const uint8_t shape[4] = {0, 3, 2, 1}; live_wave = shape[lfo[3] % 4]; }
+            static const uint8_t at[4] = {137, 139, 142, 135}; value = frame_patch[at[k]]; max = k == 3 ? 7 : 99; }
+        else if (k < 3) { groove_lfo_copy(t, lfo); value = lfo[k == 2 ? 3 : k]; max = 100; }
         if (k == 2 && value >= 0) {
             static const char *const waves[] = {"TRI", "SAW DN", "SAW UP", "SQUARE", "SINE", "S&H"};
-            strcpy(out, waves[live_wave]); return;
+            static const uint8_t shape[4] = {0, 3, 2, 1};
+            strcpy(out, waves[dx7 ? value % 6 : shape[value % 4]]); return;
         }
     } else if (target >= SMK37_MAP_REV_TIME && target <= SMK37_MAP_FX_RETURN) {
         uint8_t fx[4]; groove_effects_get(fx); value = fx[target - SMK37_MAP_REV_TIME];
@@ -1053,7 +1052,7 @@ static __attribute__((noinline, minsize)) void draw_live(void)
         memset(cache->cell_cache, 0xff, sizeof cache->cell_cache);
         paint_fill(0, 0, 240, 240, GREY);
         text(8, 8, "LIVE CONTROL", 2, AMBER, GREY);
-        text(8, 229, "< OR HOLD BT 1S: EDIT   BT: EXIT", 1, AMBER, GREY);
+        text(8, 229, "< OR HOLD BT: EDIT  BT/PATCH: EXIT", 1, AMBER, GREY);
     }
     /* Green progress bar while BT is held towards editing. */
     uint32_t since = smk37_bt_hold_since();
@@ -1069,7 +1068,7 @@ static __attribute__((noinline, minsize)) void draw_live(void)
     }
     unsigned last = smk37_map_last, bar = 255;
     if (last < SMK37_MAP_CONTROLS) map_value(last, value, &bar); else strcpy(value, "");
-    uint32_t sig = signature(last * 977U + bar + live_wave * 131U, value, (unsigned)strlen(value));
+    uint32_t sig = signature(last * 977U + bar, value, (unsigned)strlen(value));
     if (cache->cell_cache[1][0] != sig) {
         cache->cell_cache[1][0] = sig;
         paint_fill(0, 40, 240, 72, GREY);
@@ -1077,27 +1076,7 @@ static __attribute__((noinline, minsize)) void draw_live(void)
         else {
             map_label(last, label, smk37_map_get(last)->target != 0);
             text(8, 42, label, 2, AMBER, GREY);
-            text(8, 66, value, live_wave < 6 ? 3 : 4, AMBER, GREY);
-            if (live_wave < 6) {
-                /* LFO shape, 2 cycles: points x<<4|y on a 16x16 grid, 0xff ends. */
-                static const uint8_t shapes[] = {
-                    0x0f, 0x40, 0x8f, 0xc0, 0xfb, 0xff,                         /* TRI */
-                    0x00, 0x7f, 0x70, 0xff, 0xff,                               /* SAW DN */
-                    0x0f, 0x70, 0x7f, 0xf0, 0xff,                               /* SAW UP */
-                    0x00, 0x40, 0x4f, 0x8f, 0x80, 0xc0, 0xcf, 0xff, 0xff,       /* SQUARE */
-                    0x08, 0x13, 0x20, 0x33, 0x48, 0x5d, 0x6f, 0x7d, 0x88,
-                    0x93, 0xa0, 0xb3, 0xc8, 0xdd, 0xef, 0xfd, 0xff,             /* SINE */
-                    0x0a, 0x3a, 0x32, 0x62, 0x6d, 0x9d, 0x95, 0xc5, 0xcb, 0xfb, 0xff /* S&H */
-                };
-                const uint8_t *q = shapes;
-                for (unsigned n = live_wave; n; --n) while (*q++ != 0xff) {}
-                int px = -1, py = 0;
-                for (; *q != 0xff; ++q) {
-                    int x = 150 + (*q >> 4) * 5, y = 66 + (*q & 15) * 2;
-                    if (px >= 0) line(px, py, x, y, AMBER);
-                    px = x; py = y;
-                }
-            }
+            text(8, 66, value, 4, AMBER, GREY);
             if (bar <= 100) { paint_fill(8, 102, 224, 6, PANEL); paint_fill(8, 102, bar * 224U / 100U, 6, AMBER); }
         }
     }
@@ -1194,14 +1173,14 @@ static __attribute__((noinline)) void project_draw(void)
     if (cache->row_cache[0] != sig) {
         cache->row_cache[0] = sig;
         erase(8, 126, 224, 26);
-        plain_text(8, 126, project_reload ? "OVERWRITE SELECTED SLOT?" : "SAVE WRITE PROJECT");
-        dim_text(8, 145, project_reload ? "SAVE CONFIRM  HOME CANCEL" : "K1 CURSOR  K2 LETTER");
+        plain_text(8, 126, project_reload ? "OVERWRITE SELECTED SLOT?" : "> WRITE PROJECT");
+        dim_text(8, 145, project_reload ? "> CONFIRM  <|PATCH CANCEL" : "K1 CURSOR  K2 LETTER");
     }
     if (cache->hint_cache != 1U) {
         cache->hint_cache = 1U;
         dim_text(8, 59, "WORKING NAME");
-        dim_text(8, 105, "SELECT / PRESETS CHOOSE SLOT");
-        dim_text(8, 224, "HOME CANCEL  EDIT SOUND");
+        dim_text(8, 105, "K5 / K7 CHOOSE SLOT");
+        dim_text(8, 224, "<|PATCH CANCEL  PARA SOUND");
     }
     sig = (unsigned)(project_result + 16) | (project_operation << 16);
     if (cache->row_cache[1] == sig) return;
@@ -1231,12 +1210,12 @@ static __attribute__((noinline)) void preset_draw(void)
     number(8, 65, preset_slot + 1, 2, 2, ACCENT, BACK);
     text(38, 65, "/16", 2, DIM, BACK);
     text(8, 97, project_stored_result < 0 ? "READ ERROR" : project_stored, 2, TEXT, BACK);
-    plain_text(8, 127, "SELECT / PRESETS LOAD");
-    plain_text(8, 148, "PLAY LOAD + RUN   SAVE PROJECT");
+    plain_text(8, 127, "K5 / K7 LOAD");
+    plain_text(8, 148, "PLAY LOAD + RUN   > PROJECT");
     dim_text(8, 170, "PADS 1-16 LOAD DIRECTLY");
     dim_text(8, 191, "K1 BANK: USER / FACTORY");
     color_text(8, 213, project_result == GROOVE_PROJECT_EMPTY ? "EMPTY SLOT - CHOOSE ANOTHER" :
-         project_result ? "LOAD FAILED - CURRENT KEPT" : "HOME BACK   HOME+SAVE UNDO", project_result ? AMBER : DIM);
+         project_result ? "LOAD FAILED - CURRENT KEPT" : "<|PATCH BACK  <|PATCH+> UNDO", project_result ? AMBER : DIM);
 }
 static __attribute__((noinline)) void name_draw(void)
 {
@@ -1414,7 +1393,7 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         static const char *const hints[] = {"PROJECT: FOLLOWS PROJECT", "LIVE: KEEP SOUND ON PROJECT LOAD", "OFF: TURN K2 LEFT TO ENABLE"};
         dim_text(8, 198, source_preview == groove_source_type(track) ? hints[role] : "DRUM / PITCH CHANGE CLEARS STEPS");
         color_text(8, 216, source_result ? "NOT ENOUGH MEMORY - RETRY" : "K1 / PADS 1-6 CHOOSE", source_result ? AMBER : TEXT);
-        dim_text(8, 231, role == GROOVE_TRACK_OFF ? "K2 ENABLE TRACK   HOME BACK" : "SAVE APPLY SOUND   HOME BACK");
+        dim_text(8, 231, role == GROOVE_TRACK_OFF ? "K2 ENABLE TRACK  <|PATCH BACK" : "> APPLY SOUND  <|PATCH BACK");
     } else if (visible == ACTIONS) {
         if (action_confirm) color_text(8, 38, "REPLACE PATTERN DATA?", AMBER);
         else {
@@ -1431,8 +1410,8 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
             paint_fill(6, y, 228, 17, bg);
             text(10, y + 5, actions[at], 1, at == action ? ACCENT : DIM, bg);
         }
-        plain_text(8, 213, notice ? notice : "K1 / SELECT ACTION  SAVE EXECUTE");
-        dim_text(8, 231, action_confirm ? "SAVE CONFIRM   HOME CANCEL" : "PRESETS STEP  OCT PAGE  SAVE DO");
+        plain_text(8, 213, notice ? notice : "K1 / K5 ACTION  > EXECUTE");
+        dim_text(8, 231, action_confirm ? "> CONFIRM   <|PATCH CANCEL" : "K7 STEP  OCT PAGE  > DO");
     } else if (visible == ARP_EDIT) {
         text(8, 40, "ARPEGGIATOR", 2, ACCENT, BACK);
         text(184, 40, "T", 2, colors[track], BACK);
@@ -1442,7 +1421,7 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         dim_text(8, 118, "RATE FOLLOWS BPM / MIDI CLOCK");
         dim_text(8, 140, arp_page ? "RELEASE ALL KEYS FOR A NEW CHORD" : groove_pad_count(track) ? "DRUMS: RANGE / GATE UNAVAILABLE" : "UP / DOWN / UP-DOWN / RANDOM");
         dim_text(8, 162, "ARP BOTH - SEQ 6/7: OUT PORT");
-        accent_text(8, 180, arp_page ? "2/2 HOLD / MIDI  PAGE TURN" : "1/2 NOTES  PAGE TURN");
+        accent_text(8, 180, arp_page ? "2/2 HOLD / MIDI  K6 PAGE" : "1/2 NOTES  K6 PAGE");
         static const char *const rates[] = {"1/4", "1/8", "1/16", "1/32"};
         static const char *const modes[] = {"UP", "DOWN", "UP-DN", "RANDOM"};
         char range[12], gate[12];
@@ -1468,10 +1447,10 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         dim_text(28, 76, "/128");
         color_text(56, 76, frame_views[track].modified ? "*" : " ", AMBER);
         text(72, 72, name, 2, TEXT, BACK);
-        plain_text(8, 102, "PRESETS VOICE  PAGE BANK");
-        dim_text(8, 126, "HOLD EDIT: FULL FM");
-        dim_text(8, 148, "ENV ENVELOPE   SHIFT+ENV LFO");
-        dim_text(8, 170, "KEYS PLAY  SELECT TRACK");
+        plain_text(8, 102, "K7 VOICE  K6 BANK");
+        dim_text(8, 126, "HOLD PARA: FULL FM");
+        dim_text(8, 148, "CHORD ENVELOPE  KNOB BANK+CHORD LFO");
+        dim_text(8, 170, "KEYS PLAY  K5 TRACK");
         static const char *const labels[] = {"ALGORITHM", "FEEDBACK", "TRANSPOSE", "LEVEL"};
         int values[] = {frame_patch[134] + 1, frame_patch[135], (int)frame_patch[144] - 24, frame_views[track].volume};
         for (unsigned i = 0; i < 4; ++i) { char value[12]; decimal(value, values[i], 1); knob(i, labels[i], value, colors[i]); }
@@ -1502,16 +1481,16 @@ static __attribute__((noinline)) const char *performance_hint(unsigned visible, 
     const struct groove_view *v = &views[track];
     unsigned role = groove_track_role(track);
     if (visible == STEPS && seq_page == 5) return "K1 IN: RECEIVE  K2 OUT: SEND";
-    if (role == GROOVE_TRACK_OFF) return "TRACK OFF - SHIFT+HOME K2 TO ENABLE";
+    if (role == GROOVE_TRACK_OFF) return "TRACK OFF - KNOB BANK+PATCH, K2 ON";
     if (!fm1_engine_output_level()) return "MASTER MUTED - TURN MASTER UP";
-    if (v->muted) return "TRACK MUTED - MIX / PAD TO UNMUTE";
+    if (v->muted) return "TRACK MUTED - GLOBE / PAD TO UNMUTE";
     /* The engine already resolves the independent NORMAL / PLAY solo groups. */
-    if (!v->audible) return "OTHER TRACK SOLO - MIX TO CHECK";
-    if (!v->volume) return "TRACK LEVEL 0 - USE MIX / FADER";
+    if (!v->audible) return "OTHER TRACK SOLO - GLOBE TO CHECK";
+    if (!v->volume) return "TRACK LEVEL 0 - USE GLOBE / FADER";
     if (writing && role == GROOVE_TRACK_PLAY) return "REC PROJECT TRACKS; LIVE NOT REC";
     if (groove_midi_input_channel(smk37_performance_track(0))==
         groove_midi_input_channel(smk37_performance_track(1)))
-        return "KEY/PAD SAME CH - SHIFT+SEQ TO SET";
+        return "KEY/PAD SAME CH: KNOB BANK+SEQ";
     return NULL;
 }
 static void hint_draw(const char *hint)
@@ -1555,17 +1534,17 @@ static __attribute__((noinline, cold, minsize)) void draw_page_body(const struct
         edit_page_draw(visible);
         if (visible == FM_QUICK || visible == ARP_EDIT)
             hint_draw(state_hint ? state_hint : visible == FM_QUICK
-                ? "EDIT BACK  HOLD EDIT MORE" : "ARP ON/OFF   HOME BACK");
+                ? "PARA BACK  HOLD PARA MORE" : "ARP ON/OFF   <|PATCH BACK");
         return;
     }
     if (visible == EFFECTS) {
         effects_draw();
-        hint_draw(state_hint ? state_hint : "PAGE EFFECTS  SELECT TRACK");
+        hint_draw(state_hint ? state_hint : "K6 EFFECTS  K5 TRACK");
         return;
     }
     if (visible == FM_LFO && v->type != GROOVE_DX7) {
         track_lfo_draw();
-        hint_draw(state_hint ? state_hint : "SHIFT+ENV BACK  HOME TRACKS");
+        hint_draw(state_hint ? state_hint : "KNOB BANK+CHORD BACK  <|PATCH TRACKS");
         return;
     }
     const uint8_t *patch = frame_patch;
@@ -1721,16 +1700,16 @@ static __attribute__((noinline, cold, minsize)) void draw_page_body(const struct
                        : writing ? v->playing ? "LIVE REC - PLAY KEYS  REC TO FINISH"
                                                              : "STEP REC - PLAY KEYS  REC TO FINISH"
                        : visible == OVERVIEW && (previous_buttons & BUTTON(HOME))
-                           ? "PRESETS SOURCE  EDIT PARAMETERS"
+                           ? "K7 SOURCE  PARA PARAMETERS"
                        : visible == OVERVIEW ? routing
-                       : visible == STEPS    ? "PRESETS STEP  OCT PAGE  HOLD SEQ MORE"
-                       : visible == MIX      ? "PADS MUTE/SOLO  MIX / HOME BACK"
-                       : visible == FM_EDIT  ? "PADS OP  SELECT PAGE  EDIT BACK"
-                       : visible == FM_ENV && v->type != GROOVE_DX7 ? "ENV BACK  SELECT TRACK"
-                       : visible == FM_ENV   ? "PRESETS ENV ON/OFF  HOME TRACKS"
+                       : visible == STEPS    ? "K7 STEP  OCT PAGE  HOLD SEQ MORE"
+                       : visible == MIX      ? "PADS MUTE/SOLO  GLOBE/<|PATCH BACK"
+                       : visible == FM_EDIT  ? "PADS OP  K5 PAGE  PARA BACK"
+                       : visible == FM_ENV && v->type != GROOVE_DX7 ? "CHORD BACK  K5 TRACK"
+                       : visible == FM_ENV   ? "K7 ENV ON/OFF  <|PATCH TRACKS"
                        : visible == TONE_EDIT && !advanced_edit
-                           ? "HOLD EDIT MORE  SELECT TRACK"
-                           : "SELECT PAGE  HOME TRACKS";
+                           ? "HOLD PARA MORE  K5 TRACK"
+                           : "K5 PAGE  <|PATCH TRACKS";
     hint_draw(hint);
 }
 static void draw_page(const struct fm1_ble_status *ble)
@@ -1739,10 +1718,10 @@ static void draw_page(const struct fm1_ble_status *ble)
     if (shift_visible && !boot_active && (paint_rendering || cache->shortcut_cache != track)) {
         cache->shortcut_cache = track;
         paint_fill(0, 195, 240, 45, PANEL);
-        text(8, 198, "SHIFT SHORTCUTS", 1, ACCENT, PANEL);
+        text(8, 198, "KNOB BANK SHORTCUTS", 1, ACCENT, PANEL);
         text(8, 209, "PADS 1-8 TRACK   PADS 9-16 MUTE", 1, TEXT, PANEL);
-        text(8, 220, "ENV LFO  HOME SOURCE  SEQ MIDI", 1, TEXT, PANEL);
-        text(8, 231, "PAD/STEP STEP EDIT  RELEASE TO RETURN", 1, DIM, PANEL);
+        text(8, 220, "CHORD LFO  PATCH SOURCE  SEQ MIDI", 1, TEXT, PANEL);
+        text(8, 231, "NOTE REPEAT STEPS  RELEASE TO RETURN", 1, DIM, PANEL);
     }
     if (boot_active || page == MAP_PAGE || (paint_rendering && paint_top >= 30)) return;
     uint32_t since = 0;
@@ -2007,7 +1986,7 @@ static void select_track(int delta)
 void groove_screen_tap(uint32_t now)
 {
     int bpm = groove_tempo_tap(now);
-    announce(bpm < 0 ? "TAP: EXTERNAL MIDI CLOCK" : bpm ? "TAP TEMPO APPLIED" : "TAP AGAIN / HOME+SEQ", now + 1500U);
+    announce(bpm < 0 ? "TAP: EXTERNAL MIDI CLOCK" : bpm ? "TAP TEMPO APPLIED" : "TAP AGAIN / <|PATCH+SEQ", now + 1500U);
 }
 /* Keep modal editors out of the common key/transport control frame. */
 static __attribute__((noinline)) void tone_control(const struct fm1_controls *controls, uint32_t key_down)
@@ -2191,7 +2170,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         !(controls->buttons & BUTTON(PLAY))) {
         source_preview = (unsigned)((int)groove_source_type(track) +
             controls->encoders[6] % GROOVE_SOURCES + GROOVE_SOURCES) % GROOVE_SOURCES;
-        page = SOURCE; source_result = 0;
+        page = SOURCE; source_result = 0; source_back = 0;
         goto controls_done;
     }
     if ((controls->buttons & (BUTTON(SEQ) | BUTTON(EDIT))) == (BUTTON(SEQ) | BUTTON(EDIT)) &&
@@ -2216,10 +2195,6 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         glo_down = 0;
         blocked_keys |= controls->keys;
         if (tapped) page = page == MIX ? music_page : MIX;
-    }
-    if (page == MAP_PAGE && (pressed & BUTTON(HOME))) {
-        map_edit ^= 1U; map_page = 0; cache->shown_page = ~0U;
-        goto controls_done;
     }
     if (pressed & (BUTTON(HOME) | BUTTON(SEQ) | BUTTON(FX) | BUTTON(SCL) |
                    BUTTON(EDIT) | BUTTON(ENV) | BUTTON(LFO))) {
@@ -2344,6 +2319,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         goto controls_done;
     }
     if (page == SOURCE) {
+        if (source_back && (int32_t)(now - source_back) >= 0) { source_back = 0; page = music_page; goto controls_done; }
         unsigned before_preview = source_preview;
         int delta = controls->encoders[0] + controls->encoders[1] + controls->encoders[2] + controls->encoders[6];
         source_preview = (unsigned)((int)source_preview + delta % GROOVE_SOURCES + GROOVE_SOURCES) % GROOVE_SOURCES;
@@ -2353,6 +2329,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         if (controls->encoders[3]) {
             blocked_keys |= controls->keys; if (!release_keys()) return 0;
             source_result = groove_settings_track(track,0,controls->encoders[3]);
+            source_back = (now + 300U) | 1U;
         }
         if ((pressed & BUTTON(SAVE)) && groove_track_role(track) != GROOVE_TRACK_OFF) {
             source_result = groove_source_set(track, source_preview);
@@ -2704,7 +2681,7 @@ void groove_screen_control(void)
     unsigned modes = smk37_fader_bank() | (smk37_pad_steps() << 1);
     if (modes != panel_modes_seen) {
         announce((modes ^ panel_modes_seen) & 2U
-            ? modes & 2U ? "PAD STEPS - SHIFT+PAD TO PLAY" : "PAD PLAY - SHIFT+PAD TO EDIT STEPS"
+            ? modes & 2U ? "PAD STEPS - KNOB BANK+NOTE REPEAT" : "PAD PLAY - KNOB BANK+NOTE REPEAT"
             : modes & 1U ? "FADERS 5-8 - MOVE TO MATCH LEVEL" : "FADERS 1-4 - MOVE TO MATCH LEVEL", now + 1800U); panel_modes_seen = modes;
     }
     uint32_t feedback = smk37_fader_feedback();
@@ -2877,8 +2854,8 @@ __attribute__((noinline, cold, minsize)) void smk37_screen_pad_mode(unsigned ste
     action_confirm=ble_forget=project_reload=0;
     page=music_page=steps?STEPS:OVERVIEW;
     if(steps) {seq_page=0;writing=0;groove_edit_record(0,track,cursor);}
-    notice=steps?"PAD STEPS - SHIFT+PAD TO PLAY":
-        pad_focus?"PAD READY - EDIT / ENV / FX":"KEY READY - EDIT / ENV / FX";
+    notice=steps?"PAD STEPS - KNOB BANK+NOTE REPEAT":
+        pad_focus?"PAD READY - PARA / CHORD / FX":"KEY READY - PARA / CHORD / FX";
     notice_until=fm1_millis()+2000U;
     cache->shown_page=~0U;
 }
@@ -2915,7 +2892,7 @@ void smk37_screen_page(unsigned target)
         target==SMK37_PAGE_MAP?MAP_PAGE:SOURCE;
     if(page==STEPS) {music_page=STEPS;seq_page=5;}
     else if(page==MAP_PAGE) {}
-    else {source_preview=groove_source_type(track);source_result=0;}
+    else {source_preview=groove_source_type(track);source_result=0;source_back=0;}
     cache->shown_page=~0U;
 }
 unsigned smk37_screen_map_mode(void)
@@ -2989,7 +2966,7 @@ int groove_screen_open(unsigned target)
     if (page == FM_ENV && groove_pad_count(track)) drum_parts[track] = (uint8_t)drum;
     action_confirm = name_cursor = 0;
     if (page == OVERVIEW || page == STEPS) music_page = page;
-    if (page == SOURCE) { source_preview = groove_source_type(track); source_result = 0; }
+    if (page == SOURCE) { source_preview = groove_source_type(track); source_result = 0; source_back = 0; }
     if (page == PRESET_BROWSER) { project_result = 0; preset_refresh(); }
     if (page == BLE) { ble_view = ble_forget = ble_action = 0; ble_result = 0; }
     cache->shown_page = ~0U;

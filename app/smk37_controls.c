@@ -23,7 +23,7 @@ static uint8_t wheel_last_channel[2];
 /* BT: a click opens the LIVE page (assignments play only there); on LIVE,
  * a 2 s hold opens editing and a click exits; in editing a click returns. */
 enum { BT_BUTTON = 11, BT_HOLD_MS = 1000 };
-static uint8_t bt_down, bt_used;
+static uint8_t bt_down, bt_used, lt_map; /* lt_map: < held on the BT pages */
 static uint32_t bt_ms;
 uint32_t smk37_bt_hold_since(void) { return bt_down && !bt_used ? bt_ms | 1U : 0; }
 static unsigned map_velocity(unsigned v); /* smk37_map.inc */
@@ -293,6 +293,7 @@ void smk37_control_event(unsigned kind,unsigned id,int value)
         if(!!was==!!value)return;
         if(value)physical_buttons|=bit;else physical_buttons&=~bit;
         if(!value)shifted_buttons&=~bit;
+        if(!value && id==2)lt_map=0;
         if(!value && id==BT_BUTTON && bt_down) {bt_down=0;if(!bt_used)smk37_screen_map_click();}
         if(value) {
             if(physical_buttons&1U)shifted_buttons|=bit&((1U<<9)|(1U<<12)|(1U<<15));
@@ -310,6 +311,11 @@ void smk37_control_event(unsigned kind,unsigned id,int value)
                 bt_used=!smk37_screen_map_mode();
                 if(bt_used)smk37_screen_page(SMK37_PAGE_MAP);
             }
+            /* BT pages: < toggles LIVE / editing; PATCH stays HOME (leaves). */
+            else if(id==2 && smk37_screen_map_mode()) {
+                lt_map=1;
+                if(smk37_screen_map_mode()==1)smk37_screen_map_edit();else smk37_screen_map_click();
+            }
             else if(id==12 && (physical_buttons&1U))smk37_screen_page(SMK37_PAGE_SOURCE);
             else if(id==15 && (physical_buttons&1U))smk37_screen_page(SMK37_PAGE_MIDI);
         }
@@ -318,6 +324,7 @@ void smk37_control_event(unsigned kind,unsigned id,int value)
         panel.buttons=0;
         for(unsigned i=0;i<18;++i)if((physical_buttons&(1U<<i)) && button_map[i]<14) {
             if((i==12 || i==15) && (shifted_buttons&(1U<<i)))continue;
+            if(i==2 && lt_map)continue;
             unsigned button=button_map[i];
             if(i==9 && (shifted_buttons&(1U<<9)))button=5;
             panel.buttons|=1U<<button;

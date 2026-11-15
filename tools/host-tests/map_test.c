@@ -12,7 +12,7 @@ int groove_fm_copy(unsigned track, uint8_t patch[156], struct groove_fm_controls
 void sim_boot(unsigned); const float *sim_render(void); int sim_smk37(unsigned,unsigned,int);
 const uint16_t *sim_pixels(void); void sim_midi_capture(unsigned); unsigned sim_midi_output(void); uint8_t *sim_file(void);
 uint32_t fm1_millis(void);
-enum { BT = 11, HOME = 2, OCTDN = 4, FX = 14 };
+enum { PATCH = 12, BT = 11, HOME = 2, OCTDN = 4, FX = 14 };
 static int fails;
 #define CHECK(c,msg) do{ if(c) printf("PASS %s\n",msg); else {printf("FAIL %s\n",msg); fails++;} }while(0)
 static void wait(unsigned ms){ uint32_t end=fm1_millis()+ms; while(fm1_millis()<end) sim_render(); }
@@ -22,6 +22,7 @@ static void button(unsigned id,unsigned ms){ sim_smk37(SMK37_BUTTON,id,1); wait(
 static void knob(unsigned id,int d){ for(int i=0;i<(d<0?-d:d);++i){ sim_smk37(SMK37_ENCODER,id,d<0?-1:1); wait(20);} wait(50); }
 static void fader(unsigned id,unsigned v){ sim_smk37(SMK37_FADER,id,(int)v); wait(30); }
 static void row(unsigned r){ smk37_screen_map_select(r); wait(30); }
+unsigned groove_screen_web_context(void);
 static unsigned mode(void){ return smk37_screen_map_mode(); }
 int main(void){
   sim_boot(1); wait(300);
@@ -39,6 +40,8 @@ int main(void){
   CHECK(mode()==2,"releasing the long BT press stays in editing");
   button(BT,100);  CHECK(mode()==1,"BT click in editing returns to LIVE");
   button(BT,100);  CHECK(mode()==0,"BT click on LIVE exits");
+  button(BT,100); button(PATCH,80); CHECK(mode()==0,"PATCH on LIVE goes HOME (leaves LIVE)");
+  button(BT,100); button(BT,1200); button(PATCH,80); CHECK(mode()==0,"PATCH in editing goes HOME");
   /* ---- Assign in editing ---- */
   button(BT,100); button(HOME,80);
   row(4); knob(1,2); knob(2,3);                       /* K5 REVERB T3 */
@@ -109,5 +112,11 @@ int main(void){
   CHECK(smk37_map_get(5)->all && !smk37_map_get(4)->all,"LIVE/ALL survives reboot");
   CHECK(!(groove_settings_radio_flags()&GROOVE_RADIO_ON),"Bluetooth OFF survives reboot");
   button(BT,100); CHECK(mode()==1,"BT opens LIVE after reboot");
+  button(BT,100);
+  sim_smk37(SMK37_BUTTON,0,1); button(PATCH,80); sim_smk37(SMK37_BUTTON,0,0); wait(60);
+  unsigned src=groove_screen_web_context(); knob(1,1); wait(100);
+  CHECK(groove_screen_web_context()==src,"SOURCE: K2 changes the track mode, page stays briefly");
+  shot("11_source_k2"); wait(300);
+  CHECK(groove_screen_web_context()!=src,"SOURCE: back to the previous page 300 ms after K2");
   printf("fails=%d\n",fails); return fails!=0;
 }
